@@ -13,7 +13,8 @@ it load, chat with it, swap models — without touching a shell.
 
 ## Status
 
-**M1 complete.** Server lifecycle management works end to end:
+**M1 + M2 complete.** Server lifecycle management and the model library work end
+to end:
 
 - launch `llama-server` with a configured flag set, on an automatically chosen free port
 - live state machine — `stopped → starting → loading → ready → degraded / crashed`
@@ -24,9 +25,51 @@ it load, chat with it, swap models — without touching a shell.
 - adopts a `llama-server` left running by a previous session instead of spawning a rival
 - never leaks a child process: SIGTERM with a SIGKILL escalation, on stop *and* on app quit
 
-Not yet built: model library and GGUF metadata (M2), chat (M3), tuning
-playground (M4), Hugging Face downloads (M5). See the milestone table in the
-plan for the full sequence.
+- finds every llama.cpp install and lets you choose between them — both the
+  standalone `llama-server` and the newer unified `llama serve` CLI
+- model library scanned from disk, with architecture, quantisation, layer count,
+  trained context and chat-template presence read straight from the GGUF header
+- **VRAM planner**: shows what a launch will cost before you start it, broken
+  into weights / KV cache / compute / backend reserve, and names the largest
+  `-ngl` that should fit
+
+Not yet built: chat (M3), tuning playground (M4), Hugging Face downloads (M5).
+See the milestone table in the plan for the full sequence.
+
+## Which llama.cpp does it use?
+
+llama.cpp ships in two shapes and they are not interchangeable:
+
+| Shape | Invocation | Notes |
+|---|---|---|
+| standalone | `llama-server --model …` | what distro packages ship |
+| unified CLI | `llama serve --model …` | current upstream distribution |
+
+Both are discovered and listed; the unified CLI is preferred because a stale
+distro build often sits in `/usr/bin` alongside a current one, and silently
+driving the wrong binary makes a working GPU look broken. Use the binary
+dropdown to override, or set `LLAMA_SERVER_PATH`.
+
+They differ in argv: the unified CLI needs the `serve` subcommand and takes
+`--flash-attn on|off|auto`, where the standalone binary treats `--flash-attn` as
+a bare boolean. Passing the wrong form makes llama.cpp exit during argument
+parsing, so the app adapts per binary rather than assuming one.
+
+## How the VRAM estimate works
+
+- **KV cache** is exact arithmetic — `2 x layers x ctx x embd_gqa x bytes` —
+  and reproduces llama.cpp's own reported size to the byte.
+- **Weights** come from the file size, minus an estimate of the token-embedding
+  tensor, which stays host-resident even at full offload.
+- **Compute buffer** depends on the llama.cpp generation: older builds allocate
+  logits for the whole physical batch, newer ones only for emitted tokens — an
+  ~8x difference (310 MiB vs 38 MiB measured on the same model). This is the
+  least certain term.
+- **Backend reserve** (~190 MiB for ROCm) is counted, because on an 8 GB card
+  omitting it makes the estimate optimistic exactly when that hurts most.
+
+Validated against real launches on an RX 6600: predicted 917 MiB vs 913 measured
+on a classic build, and 641 vs 647 on a modern one — 0.4% and 0.9%.
 
 ## Requirements
 

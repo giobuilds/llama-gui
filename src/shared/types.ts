@@ -104,16 +104,35 @@ export interface LogLine {
   text: string
 }
 
-/** Result of probing the installed llama.cpp, cached per binary build string. */
+/**
+ * llama.cpp ships in two shapes, and they are not interchangeable:
+ *  - 'llama-server': the long-standing standalone binary (what distro packages ship)
+ *  - 'unified': the newer single `llama` CLI where `llama serve` replaces it
+ * Searching only for a file named `llama-server` silently misses the second and
+ * can land on a stale distro build the user does not actually use.
+ */
+export type BinaryKind = 'llama-server' | 'unified'
+
+/** Result of probing an installed llama.cpp. */
 export interface BinaryInfo {
-  /** Resolved absolute path to llama-server. */
+  /** Resolved absolute path to the executable. */
   path: string
-  /** Raw first line(s) of --version, e.g. "version: 6153 (abc1234)". */
+  kind: BinaryKind
+  /** Subcommand to prepend to argv — [] for llama-server, ['serve'] for the unified CLI. */
+  argvPrefix: string[]
+  /** Raw --version line, e.g. "0.3.0-dev (build 10679, commit 50f068fff)". */
   version: string
   /** Long flag names the binary advertises in --help, e.g. "--flash-attn". */
   flags: string[]
+  /**
+   * Newer builds take `--flash-attn on|off|auto`; older ones treat it as a bare
+   * boolean. Passing the wrong form makes the server exit before it starts.
+   */
+  flashAttnStyle: 'bare' | 'value'
   /** Devices from --list-devices. Empty on a CPU-only build. */
   devices: GpuDevice[]
+  /** Human-readable label for the picker, e.g. "llama serve — 0.3.0-dev". */
+  label: string
 }
 
 export interface GpuDevice {
@@ -122,6 +141,41 @@ export interface GpuDevice {
   name: string
   totalMiB: number
   freeMiB: number
+}
+
+/** Mirrors main/planner.ts VramPlan; duplicated here so the renderer can type it. */
+export interface VramPlanView {
+  offloadedLayers: number
+  totalLayers: number
+  weightsMiB: number
+  kvCacheMiB: number
+  computeMiB: number
+  backendOverheadMiB: number
+  totalMiB: number
+  freeMiB: number | null
+  fits: boolean | null
+  maxGpuLayers: number | null
+  notes: string[]
+}
+
+/** Mirrors main/registry.ts ModelEntry. */
+export interface ModelEntryView {
+  path: string
+  fileName: string
+  fileSize: number
+  architecture: string
+  name: string
+  blockCount: number | null
+  contextLength: number | null
+  embeddingLength: number | null
+  headCount: number | null
+  headCountKv: number | null
+  quant: string | null
+  parameterCount: number | null
+  hasChatTemplate: boolean
+  vocabSize: number | null
+  mtimeMs: number
+  error?: string
 }
 
 export interface IpcResult<T> {

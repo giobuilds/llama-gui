@@ -2,26 +2,24 @@ import { useServerStore } from '../state/serverStore.js'
 import { KV_CACHE_TYPES } from '@shared/types.js'
 import { Field, inputClass } from '../components/Field.js'
 import { StatusBadge } from '../components/StatusBadge.js'
+import { ModelPicker } from '../components/ModelPicker.js'
+import { VramBar } from '../components/VramBar.js'
 
 /** Phases in which a new launch must not be attempted. */
 const LIVE_PHASES = new Set(['starting', 'loading', 'ready', 'degraded', 'stopping'])
 
 export function LaunchPanel(): React.JSX.Element {
-  const { status, binary, devices, draft, busy, error } = useServerStore()
+  const { status, binary, binaries, devices, draft, busy, error, plan } = useServerStore()
   const setDraft = useServerStore((s) => s.setDraft)
   const start = useServerStore((s) => s.start)
   const stop = useServerStore((s) => s.stop)
   const refreshDevices = useServerStore((s) => s.refreshDevices)
+  const selectBinary = useServerStore((s) => s.selectBinary)
   const clearError = useServerStore((s) => s.clearError)
 
   const phase = status?.phase ?? 'stopped'
   const live = LIVE_PHASES.has(phase)
   const supports = (flag: string): boolean => !binary || binary.flags.includes(flag)
-
-  const pickModel = async (): Promise<void> => {
-    const path = await window.llama.dialog.pickModelFile()
-    if (path) setDraft({ modelPath: path })
-  }
 
   return (
     <aside className="flex w-[380px] shrink-0 flex-col gap-4 overflow-y-auto border-r border-edge bg-panel p-4">
@@ -58,16 +56,9 @@ export function LaunchPanel(): React.JSX.Element {
         </p>
       )}
 
-      <Field label="Model" hint={draft.modelPath || 'No model selected'}>
-        <button
-          type="button"
-          onClick={() => void pickModel()}
-          disabled={live}
-          className={`${inputClass} text-left hover:border-accent`}
-        >
-          {draft.modelPath ? draft.modelPath.split('/').pop() : 'Choose a .gguf file…'}
-        </button>
-      </Field>
+      <ModelPicker disabled={live} />
+
+      {plan && <VramBar plan={plan} />}
 
       <div className="grid grid-cols-2 gap-3">
         <Field label="GPU layers (-ngl)" hint="999 offloads everything that fits">
@@ -245,10 +236,32 @@ export function LaunchPanel(): React.JSX.Element {
 
       {binary && binary.path !== '' && (
         <footer className="mt-auto pt-3 text-[11px] leading-relaxed text-muted/70">
-          <div className="truncate" title={binary.path}>
-            {binary.path}
+          {binaries.length > 1 ? (
+            <Field
+              label="llama.cpp binary"
+              hint="More than one install found — the newest is preferred, but you choose."
+            >
+              <select
+                className={inputClass}
+                value={binary.path}
+                disabled={live}
+                onChange={(e) => void selectBinary(e.target.value)}
+              >
+                {binaries.map((b) => (
+                  <option key={b.path} value={b.path}>
+                    {b.label} — {b.path}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          ) : (
+            <div className="truncate" title={binary.path}>
+              {binary.path}
+            </div>
+          )}
+          <div className="mt-1">
+            {binary.kind === 'unified' ? 'llama serve' : 'llama-server'} · build {binary.version}
           </div>
-          <div>build {binary.version}</div>
           {status?.port && (
             <a
               href={`http://127.0.0.1:${status.port}`}

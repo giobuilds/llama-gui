@@ -3,7 +3,7 @@ import type { Readable } from 'node:stream'
 import { EventEmitter } from 'node:events'
 import { createServer } from 'node:net'
 import { readFile, writeFile, rm } from 'node:fs/promises'
-import type { LaunchConfig, ServerPhase, ServerStatus } from '@shared/types.js'
+import type { BinaryInfo, LaunchConfig, ServerPhase, ServerStatus } from '@shared/types.js'
 import { serverHandoffSchema, type ServerHandoff } from '@shared/schema.js'
 import { LogBuffer, LineSplitter } from './logBuffer.js'
 
@@ -28,9 +28,12 @@ const TERM_GRACE_MS = 5000
 const STAGE_MARKERS: Array<{ match: RegExp; stage: string }> = [
   { match: /loading model/i, stage: 'Loading model' },
   { match: /model loaded/i, stage: 'Model loaded, warming up' },
-  { match: /HTTP server is listening/i, stage: 'Starting HTTP server' }
+  // The classic server says "HTTP server is listening"; the unified CLI says
+  // "listening on http://…". Both shapes are matched.
+  { match: /HTTP server is listening|listening on http/i, stage: 'Starting HTTP server' }
 ]
-const FAILURE_MARKER = /failed to load (model|draft model|multimodal model)/i
+const FAILURE_MARKER =
+  /failed to load (model|models on startup|draft model|multimodal model)|error loading model/i
 
 export interface SupervisorEvents {
   status: [ServerStatus]
@@ -66,10 +69,20 @@ export class ServerSupervisor extends EventEmitter<SupervisorEvents> {
   private stopping: Promise<void> | null = null
 
   constructor(
-    private readonly binaryPath: string,
+    private binary: BinaryInfo,
     private readonly handoffPath: string
   ) {
     super()
+  }
+
+  /** Swapping the binary is only legal while nothing is running. */
+  setBinary(binary: BinaryInfo): void {
+    if (this.child) throw new Error('Stop the running server before changing the binary.')
+    this.binary = binary
+  }
+
+  get binaryInfo(): BinaryInfo {
+    return this.binary
   }
 
   get status(): ServerStatus {
@@ -106,8 +119,9 @@ export class ServerSupervisor extends EventEmitter<SupervisorEvents> {
   async start(config: LaunchConfig): Promise<void> {
     if (this.child) throw new Error('A server is already running. Stop it first.')
 
+    if (!this.binary.path) throw new Error('No llama.cpp binary selected.')
     const port = await pickFreePort()
-    const args = buildArgs(config, port)
+    const args = buildArgs(config, port, this.binary)
 
     this.config = config
     this.port = port
@@ -117,9 +131,9 @@ export class ServerSupervisor extends EventEmitter<SupervisorEvents> {
     this.healthFailures = 0
     this.startedAt = Date.now()
     this.setPhase('starting', { error: null, stage: 'Spawning process' })
-    this.appendLog('app', `$ ${this.binaryPath} ${args.join(' ')}`)
+    this.appendLog('app', `$ ${this.binary.path} ${args.join(' ')}`)
 
-    const child = spawn(this.binaryPath, args, {
+    const child = spawn(this.binary.path, args, {
       stdio: ['ignore', 'pipe', 'pipe'],
       // Own process group, so a SIGKILL escalation can take down anything it forked.
       detached: true
@@ -382,9 +396,14 @@ export class ServerSupervisor extends EventEmitter<SupervisorEvents> {
   }
 }
 
-/** Translate the UI's config into llama-server argv. */
-export function buildArgs(config: LaunchConfig, port: number): string[] {
+/**
+ * Translate the UI's config into argv for whichever llama.cpp shape is
+ * installed: the unified CLI needs a `serve` subcommand, and its `--flash-attn`
+ * takes an explicit on/off rather than being a bare boolean.
+ */
+export function buildArgs(config: LaunchConfig, port: number, binary: BinaryInfo): string[] {
   const args: string[] = [
+    ...binary.argvPrefix,
     '--model', config.modelPath,
     '--host', '127.0.0.1',
     '--port', String(port),
@@ -400,7 +419,11 @@ export function buildArgs(config: LaunchConfig, port: number): string[] {
     // Use the model's own chat template rather than a guessed one.
     '--jinja'
   ]
-  if (config.flashAttn) args.push('--flash-attn')
+  if (binary.flashAttnStyle === 'value') {
+    args.push('--flash-attn', config.flashAttn ? 'on' : 'off')
+  } else if (config.flashAttn) {
+    args.push('--flash-attn')
+  }
   if (config.noWarmup) args.push('--no-warmup')
   if (config.threads > 0) args.push('--threads', String(config.threads))
   if (config.alias) args.push('--alias', config.alias)

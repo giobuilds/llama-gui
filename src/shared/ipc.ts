@@ -7,6 +7,12 @@ export const IPC = {
   logsSince: 'logs:since',
   logsChanged: 'logs:changed',
   binaryInfo: 'binary:info',
+  binaryList: 'binary:list',
+  binarySelect: 'binary:select',
   binaryDevices: 'binary:devices',
-  pickModelFile: 'dialog:pick-model'
+  modelsList: 'models:list',
+  modelsRescan: 'models:rescan',
+  modelPlan: 'models:plan',
+  pickModelFile: 'dialog:pick-model',
+  pickModelDir: 'dialog:pick-model-dir'
 } as const
