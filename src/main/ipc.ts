@@ -1,6 +1,7 @@
 import { ipcMain, dialog, BrowserWindow } from 'electron'
 import { ZodError } from 'zod'
 import type {
+  BenchRunView,
   BinaryInfo,
   ConversationSummaryView,
   ConversationView,
@@ -30,6 +31,8 @@ import { conversationSchema, type ConversationStore } from './conversations.js'
 import type { ProfileStore } from './profiles.js'
 import { searchModels, listRepoFiles, type DownloadManager } from './downloads.js'
 import { estimateRepoFit } from './remoteFit.js'
+import { BenchRunner } from './bench.js'
+import { benchRequestSchema } from '@shared/schema.js'
 import { downloadRequestSchema } from '@shared/schema.js'
 import { planRequestSchema, healthCheckRequestSchema } from '@shared/schema.js'
 import type { SettingsStore } from './settings.js'
@@ -234,6 +237,59 @@ export function registerIpc(
     return null
   })
 
+  /**
+   * One benchmark at a time: two sweeps competing for the same GPU would
+   * measure each other's contention rather than the settings under test.
+   */
+  const bench = new BenchRunner()
+  let benchRun: BenchRunView | null = null
+  const pushBench = (): void => {
+    if (benchRun) broadcastBench({ ...benchRun })
+  }
+  bench.on('progress', (progress) => {
+    if (!benchRun) return
+    benchRun = { ...benchRun, progress }
+    pushBench()
+  })
+  bench.on('done', (results) => {
+    if (!benchRun) return
+    benchRun = { ...benchRun, results, state: 'done', progress: null, finishedAt: Date.now() }
+    pushBench()
+  })
+  bench.on('failed', (error) => {
+    if (!benchRun) return
+    benchRun = { ...benchRun, state: 'failed', error, progress: null, finishedAt: Date.now() }
+    pushBench()
+  })
+
+  handle<BenchRunView>(IPC.benchStart, (raw) => {
+    const request = benchRequestSchema.parse(raw)
+    if (supervisor.status.pid !== null) {
+      // A loaded server holds VRAM and competes for the GPU, which would make
+      // every number in the sweep wrong.
+      throw new Error('Stop the running server before benchmarking — it would skew the results.')
+    }
+    benchRun = {
+      id: `${Date.now()}`,
+      request,
+      results: [],
+      progress: null,
+      state: 'running',
+      error: null,
+      startedAt: Date.now(),
+      finishedAt: null
+    }
+    bench.start(supervisor.binaryInfo, request)
+    return benchRun
+  })
+
+  handle<null>(IPC.benchCancel, () => {
+    bench.cancel()
+    return null
+  })
+
+  handle<BenchRunView | null>(IPC.benchState, () => benchRun)
+
   handle<LaunchProfileView | null>(IPC.profileGet, (modelPath) =>
     profiles.get(String(modelPath ?? ''))
   )
@@ -268,6 +324,9 @@ export function registerIpc(
   })
 }
 
+/** Set by wireEvents so handlers registered earlier can broadcast. */
+let broadcastBench: (run: BenchRunView) => void = () => {}
+
 /** Push status and log-availability events to every open window. */
 export function wireEvents(supervisor: ServerSupervisor, downloads: DownloadManager): void {
   const broadcast = (channel: string, payload?: unknown): void => {
@@ -278,6 +337,7 @@ export function wireEvents(supervisor: ServerSupervisor, downloads: DownloadMana
 
   supervisor.on('status', (status) => broadcast(IPC.serverStatusChanged, status))
   downloads.on('update', (job) => broadcast(IPC.downloadChanged, job))
+  broadcastBench = (run) => broadcast(IPC.benchChanged, run)
 
   // llama-server can emit hundreds of lines per second; coalesce the "there is
   // new output" hint so the renderer polls at most ~10x/sec instead of per line.

@@ -3,12 +3,14 @@ import { LaunchPanel } from './views/LaunchPanel.js'
 import { LogPane } from './views/LogPane.js'
 import { Chat } from './views/Chat.js'
 import { Downloads } from './views/Downloads.js'
+import { Tuning } from './views/Tuning.js'
 import { subscribeToMain, useServerStore } from './state/serverStore.js'
 import { useChatStore } from './state/chatStore.js'
 import { subscribeToDownloads, useDownloadStore } from './state/downloadStore.js'
+import { subscribeToBench } from './state/benchStore.js'
 import { StatusBadge } from './components/StatusBadge.js'
 
-type Tab = 'chat' | 'server' | 'models'
+type Tab = 'chat' | 'server' | 'models' | 'tuning'
 
 export default function App(): React.JSX.Element {
   const init = useServerStore((s) => s.init)
@@ -21,9 +23,11 @@ export default function App(): React.JSX.Element {
     void init()
     const offServer = subscribeToMain()
     const offDownloads = subscribeToDownloads()
+    const offBench = subscribeToBench()
     return () => {
       offServer()
       offDownloads()
+      offBench()
     }
   }, [init])
 
@@ -56,6 +60,9 @@ export default function App(): React.JSX.Element {
             </span>
           )}
         </TabButton>
+        <TabButton active={tab === 'tuning'} onClick={() => setTab('tuning')}>
+          Tuning
+        </TabButton>
 
         <div className="ml-auto flex items-center gap-3 text-[11px] text-muted">
           {status?.phase === 'ready' && status.config?.modelPath && (
@@ -72,6 +79,8 @@ export default function App(): React.JSX.Element {
           <Chat />
         ) : tab === 'models' ? (
           <Downloads />
+        ) : tab === 'tuning' ? (
+          <Tuning />
         ) : (
           <div className="flex h-full">
             <LaunchPanel />

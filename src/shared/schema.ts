@@ -32,6 +32,19 @@ export const serverHandoffSchema = z.object({
 
 export type ServerHandoff = z.infer<typeof serverHandoffSchema>
 
+/** A benchmark sweep requested from the renderer. */
+export const benchRequestSchema = z.object({
+  modelPath: z.string().min(1),
+  nPrompt: z.number().int().min(0).max(1 << 20),
+  nGen: z.number().int().min(0).max(1 << 20),
+  repetitions: z.number().int().min(1).max(20),
+  gpuLayers: z.array(z.number().int().min(-1).max(9999)).max(12),
+  threads: z.array(z.number().int().min(1).max(1024)).max(12),
+  cacheTypes: z.array(z.enum(KV_CACHE_TYPES)).max(9),
+  flashAttn: z.array(z.enum(['on', 'off', 'auto'])).max(3),
+  ubatch: z.array(z.number().int().min(1).max(1 << 16)).max(8)
+})
+
 /** A download request from the renderer. */
 export const downloadRequestSchema = z.object({
   // Repo ids are "org/name"; anything else would be interpolated into a
