@@ -2,7 +2,9 @@ import { contextBridge, ipcRenderer } from 'electron'
 import { IPC } from '@shared/ipc.js'
 import type {
   BinaryInfo,
+  FitSuggestion,
   GpuDevice,
+  HealthCheckResult,
   IpcResponse,
   LaunchConfig,
   LogLine,
@@ -46,11 +48,15 @@ const api = {
     /** Every llama.cpp install found, so the user can pick between them. */
     list: () => invoke<BinaryInfo[]>(IPC.binaryList),
     select: (path: string) => invoke<BinaryInfo>(IPC.binarySelect, path),
+    /** Load a model and generate a token — the only check that catches a broken backend. */
+    healthCheck: (modelPath: string, gpuLayers: number) =>
+      invoke<HealthCheckResult>(IPC.binaryHealthCheck, { modelPath, gpuLayers }),
     devices: () => invoke<GpuDevice[]>(IPC.binaryDevices)
   },
   models: {
     list: () => invoke<ModelEntryView[]>(IPC.modelsList),
     rescan: () => invoke<ModelEntryView[]>(IPC.modelsRescan),
+    fit: (modelPath: string) => invoke<FitSuggestion | null>(IPC.modelFit, modelPath),
     plan: (req: {
       modelPath: string
       gpuLayers: number

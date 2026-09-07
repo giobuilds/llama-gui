@@ -2,7 +2,9 @@ import { ipcMain, dialog, BrowserWindow } from 'electron'
 import { ZodError } from 'zod'
 import type {
   BinaryInfo,
+  FitSuggestion,
   GpuDevice,
+  HealthCheckResult,
   IpcResponse,
   LogLine,
   ModelEntryView,
@@ -15,7 +17,9 @@ import type { ServerSupervisor } from './supervisor.js'
 import { probeBinary, readDevices } from './probe.js'
 import { scanModels, defaultModelDirs, type ModelEntry } from './registry.js'
 import { planVram } from './planner.js'
-import { planRequestSchema } from '@shared/schema.js'
+import { fitParams } from './fit.js'
+import { runHealthCheck } from './health.js'
+import { planRequestSchema, healthCheckRequestSchema } from '@shared/schema.js'
 import type { SettingsStore } from './settings.js'
 
 /** Wrap a handler so a thrown error becomes a typed failure instead of an opaque IPC rejection. */
@@ -137,6 +141,28 @@ export function registerIpc(
       },
       freeMiB
     )
+  })
+
+  /**
+   * llama.cpp's own fitting tool. Cached per model+binary: it loads the model
+   * to measure, so it is far too slow to call on every slider movement.
+   */
+  const fitCache = new Map<string, FitSuggestion | null>()
+  handle<FitSuggestion | null>(IPC.modelFit, async (rawPath) => {
+    const modelPath = String(rawPath ?? '')
+    if (!modelPath) return null
+    const binary = supervisor.binaryInfo
+    const key = `${binary.path}::${modelPath}`
+    if (!fitCache.has(key)) fitCache.set(key, await fitParams(binary, modelPath))
+    return fitCache.get(key) ?? null
+  })
+
+  handle<HealthCheckResult>(IPC.binaryHealthCheck, async (raw) => {
+    const req = healthCheckRequestSchema.parse(raw)
+    if (supervisor.status.pid !== null) {
+      throw new Error('Stop the running server before testing the binary.')
+    }
+    return runHealthCheck(supervisor.binaryInfo, req.modelPath, req.gpuLayers)
   })
 
   handle<string | null>(IPC.pickModelDir, async () => {

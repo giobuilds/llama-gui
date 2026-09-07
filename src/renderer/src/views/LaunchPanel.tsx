@@ -4,12 +4,14 @@ import { Field, inputClass } from '../components/Field.js'
 import { StatusBadge } from '../components/StatusBadge.js'
 import { ModelPicker } from '../components/ModelPicker.js'
 import { VramBar } from '../components/VramBar.js'
+import { HealthCheck } from '../components/HealthCheck.js'
 
 /** Phases in which a new launch must not be attempted. */
 const LIVE_PHASES = new Set(['starting', 'loading', 'ready', 'degraded', 'stopping'])
 
 export function LaunchPanel(): React.JSX.Element {
-  const { status, binary, binaries, devices, draft, busy, error, plan } = useServerStore()
+  const { status, binary, binaries, devices, draft, busy, error, plan, fit, fitLoading } =
+    useServerStore()
   const setDraft = useServerStore((s) => s.setDraft)
   const start = useServerStore((s) => s.start)
   const stop = useServerStore((s) => s.stop)
@@ -58,16 +60,58 @@ export function LaunchPanel(): React.JSX.Element {
 
       <ModelPicker disabled={live} />
 
-      {plan && <VramBar plan={plan} />}
+      {supports('--fit') && (
+        <section className="rounded-md border border-edge bg-ink/60 p-3">
+          <label className="flex items-start gap-2">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={draft.autoFit}
+              disabled={live}
+              onChange={(e) => setDraft({ autoFit: e.target.checked })}
+            />
+            <span>
+              <span className="text-xs font-medium text-slate-200">
+                Let llama.cpp size this launch
+              </span>
+              <span className="mt-0.5 block text-[11px] leading-snug text-muted">
+                Context and GPU layers are left unset so llama.cpp fits them to your
+                device. It knows its own allocator better than any estimate — turn
+                this off to set them yourself.
+              </span>
+            </span>
+          </label>
 
-      <div className="grid grid-cols-2 gap-3">
+          {draft.autoFit && (
+            <p className="mt-2 border-t border-edge pt-2 text-[11px] text-muted">
+              {fitLoading ? (
+                'Asking llama.cpp what fits…'
+              ) : fit ? (
+                <>
+                  It suggests <code className="text-slate-200">{fit.raw}</code>
+                  {fit.contextSize ? ` (${(fit.contextSize / 1024).toFixed(0)}k context` : ''}
+                  {fit.gpuLayers === -1 ? ', all layers on GPU)' : fit.gpuLayers !== null ? `, ${fit.gpuLayers} layers)` : ')'}
+                </>
+              ) : (
+                'No suggestion available for this model.'
+              )}
+            </p>
+          )}
+        </section>
+      )}
+
+      {plan && !draft.autoFit && <VramBar plan={plan} />}
+
+      <HealthCheck disabled={live} />
+
+      <div className={`grid grid-cols-2 gap-3 ${draft.autoFit ? 'opacity-50' : ''}`}>
         <Field label="GPU layers (-ngl)" hint="999 offloads everything that fits">
           <input
             type="number"
             min={0}
             className={inputClass}
             value={draft.gpuLayers}
-            disabled={live}
+            disabled={live || draft.autoFit}
             onChange={(e) => setDraft({ gpuLayers: Number(e.target.value) })}
           />
         </Field>
@@ -78,7 +122,7 @@ export function LaunchPanel(): React.JSX.Element {
             step={512}
             className={inputClass}
             value={draft.contextSize}
-            disabled={live}
+            disabled={live || draft.autoFit}
             onChange={(e) => setDraft({ contextSize: Number(e.target.value) })}
           />
         </Field>

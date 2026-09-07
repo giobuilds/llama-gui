@@ -1,7 +1,9 @@
 import { create } from 'zustand'
 import type {
   BinaryInfo,
+  FitSuggestion,
   GpuDevice,
+  HealthCheckResult,
   LaunchConfig,
   LogLine,
   ModelEntryView,
@@ -20,6 +22,10 @@ interface ServerState {
   models: ModelEntryView[]
   modelsLoading: boolean
   plan: VramPlanView | null
+  fit: FitSuggestion | null
+  fitLoading: boolean
+  health: HealthCheckResult | null
+  healthRunning: boolean
   logs: LogLine[]
   lastSeq: number
   draft: LaunchConfig
@@ -31,6 +37,8 @@ interface ServerState {
   loadModels: (force?: boolean) => Promise<void>
   addModelDir: () => Promise<void>
   refreshPlan: () => Promise<void>
+  refreshFit: () => Promise<void>
+  runHealthCheck: () => Promise<void>
   pullLogs: () => Promise<void>
   setDraft: (patch: Partial<LaunchConfig>) => void
   start: () => Promise<void>
@@ -47,6 +55,10 @@ export const useServerStore = create<ServerState>((set, get) => ({
   models: [],
   modelsLoading: false,
   plan: null,
+  fit: null,
+  fitLoading: false,
+  health: null,
+  healthRunning: false,
   logs: [],
   lastSeq: 0,
   draft: { modelPath: '', ...DEFAULT_LAUNCH_CONFIG },
@@ -63,6 +75,7 @@ export const useServerStore = create<ServerState>((set, get) => ({
     // Adopting a running server means its config is the truth, not our defaults.
     if (status.config) set({ draft: status.config })
     await Promise.all([get().pullLogs(), get().loadModels()])
+    void get().refreshFit()
   },
 
   async loadModels(force = false) {
@@ -86,6 +99,42 @@ export const useServerStore = create<ServerState>((set, get) => ({
       if (dir) await get().loadModels(true)
     } catch (err) {
       set({ error: (err as Error).message })
+    }
+  },
+
+  /**
+   * llama.cpp's own fitting tool loads the model to measure, so this is only
+   * called when the model or binary changes — never on a slider movement.
+   */
+  async refreshFit() {
+    const { draft } = get()
+    if (!draft.modelPath) {
+      set({ fit: null })
+      return
+    }
+    set({ fitLoading: true })
+    try {
+      set({ fit: await window.llama.models.fit(draft.modelPath) })
+    } catch {
+      set({ fit: null })
+    } finally {
+      set({ fitLoading: false })
+    }
+  },
+
+  async runHealthCheck() {
+    const { draft } = get()
+    if (!draft.modelPath) {
+      set({ error: 'Choose a model first — verifying needs one to load.' })
+      return
+    }
+    set({ healthRunning: true, health: null, error: null })
+    try {
+      set({ health: await window.llama.binary.healthCheck(draft.modelPath, draft.gpuLayers) })
+    } catch (err) {
+      set({ error: (err as Error).message })
+    } finally {
+      set({ healthRunning: false })
     }
   },
 
@@ -129,7 +178,10 @@ export const useServerStore = create<ServerState>((set, get) => ({
     set({ busy: true, error: null })
     try {
       const binary = await window.llama.binary.select(path)
-      set({ binary, devices: binary.devices })
+      // A different binary means a different allocator and a different verdict.
+      set({ binary, devices: binary.devices, health: null, fit: null })
+      void get().refreshPlan()
+      void get().refreshFit()
     } catch (err) {
       set({ error: (err as Error).message })
     } finally {
@@ -138,10 +190,16 @@ export const useServerStore = create<ServerState>((set, get) => ({
   },
 
   setDraft(patch) {
+    const prevModel = get().draft.modelPath
     set((s) => ({ draft: { ...s.draft, ...patch } }))
-    // Every knob in the panel changes the VRAM estimate, so it is recomputed
-    // rather than only on launch.
+    // Every knob changes the VRAM estimate, so it is recomputed continuously.
     void get().refreshPlan()
+    // The fit suggestion and health result belong to a model, so they are
+    // invalidated when it changes rather than shown against the wrong one.
+    if (patch.modelPath && patch.modelPath !== prevModel) {
+      set({ health: null })
+      void get().refreshFit()
+    }
   },
 
   async start() {
