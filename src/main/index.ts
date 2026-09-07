@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { ServerSupervisor } from './supervisor.js'
 import { probeAll } from './probe.js'
 import { SettingsStore } from './settings.js'
+import { ConversationStore } from './conversations.js'
 import { registerIpc, wireEvents } from './ipc.js'
 import type { BinaryInfo } from '@shared/types.js'
 
@@ -95,8 +96,11 @@ async function bootstrap(): Promise<void> {
       label: 'no llama.cpp found'
     } satisfies BinaryInfo)
 
+  const conversations = new ConversationStore(join(app.getPath('userData'), 'conversations'))
+  await conversations.init()
+
   supervisor = new ServerSupervisor(chosen, join(app.getPath('userData'), 'server.json'))
-  registerIpc(supervisor, settings, discovered)
+  registerIpc(supervisor, settings, conversations, discovered)
   wireEvents(supervisor)
   await supervisor.adoptOrReap()
 

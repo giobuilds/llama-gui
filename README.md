@@ -13,7 +13,7 @@ it load, chat with it, swap models — without touching a shell.
 
 ## Status
 
-**M1 + M2 complete.** Server lifecycle management and the model library work end
+**M1 – M3 complete.** Server management, the model library and chat all work end
 to end:
 
 - launch `llama-server` with a configured flag set, on an automatically chosen free port
@@ -37,8 +37,31 @@ to end:
 - **Binary check**: loads the model and generates tokens, so a build that starts
   fine but cannot run inference is caught in seconds rather than mid-chat
 
-Not yet built: chat (M3), tuning playground (M4), Hugging Face downloads (M5).
-See the milestone table in the plan for the full sequence.
+### Chat
+
+- streaming replies rendered as markdown, with syntax-highlighted code blocks
+  and per-block copy
+- conversations persisted to disk, listed newest-first, titled from the first
+  message
+- stop mid-generation and keep the partial reply; regenerate; edit a message and
+  resend from that point
+- per-conversation system prompt and sampler settings, so reopening an old chat
+  restores the conditions it was created under
+- reasoning output from thinking models shown separately and collapsed by default
+- throughput recorded per reply
+
+Model output is markdown-rendered into the DOM, so it is sanitised first — an
+unsanitised reply could otherwise carry a script tag or event-handler attribute
+into the app.
+
+## Roadmap
+
+| Next | Why |
+|---|---|
+| multi-slot chat | llama.cpp serves 4 slots by default; several conversations can run at once against one loaded model |
+| per-model launch profiles | remember the flags that worked for each GGUF and reapply on select |
+| downloads via `llama download` | upstream already handles HF repos, quant selection and mmproj — no reason to reimplement it |
+| tuning playground with `llama bench` | one-click benchmarks turn sampler/quant tuning into evidence rather than guesswork |
 
 ## Which llama.cpp does it use?
 

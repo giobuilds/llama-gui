@@ -211,6 +211,46 @@ export interface HealthCheckResult {
   checkedAt: number
 }
 
+export interface ChatSettingsView {
+  temperature: number
+  topP: number
+  topK: number
+  minP: number
+  repeatPenalty: number
+  maxTokens: number
+}
+
+export interface ChatMessageView {
+  id: string
+  role: 'system' | 'user' | 'assistant'
+  content: string
+  createdAt: number
+  model?: string
+  tokensPerSecond?: number
+  reasoning?: string
+  stopped?: boolean
+  error?: string
+}
+
+export interface ConversationView {
+  id: string
+  title: string
+  createdAt: number
+  updatedAt: number
+  systemPrompt: string
+  messages: ChatMessageView[]
+  settings: ChatSettingsView
+}
+
+export interface ConversationSummaryView {
+  id: string
+  title: string
+  createdAt: number
+  updatedAt: number
+  messageCount: number
+  preview: string
+}
+
 export interface IpcResult<T> {
   ok: true
   value: T
