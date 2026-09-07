@@ -146,17 +146,33 @@ export function LaunchPanel(): React.JSX.Element {
         </Field>
       </div>
 
-      {supports('--flash-attn') && (
-        <label className="flex items-center gap-2 text-xs text-slate-300">
-          <input
-            type="checkbox"
-            checked={draft.flashAttn}
-            disabled={live}
-            onChange={(e) => setDraft({ flashAttn: e.target.checked })}
-          />
-          Flash attention (-fa)
-        </label>
-      )}
+      <div className="flex flex-col gap-2">
+        {supports('--flash-attn') && (
+          <label className="flex items-center gap-2 text-xs text-slate-300">
+            <input
+              type="checkbox"
+              checked={draft.flashAttn}
+              disabled={live}
+              onChange={(e) => setDraft({ flashAttn: e.target.checked })}
+            />
+            Flash attention (-fa)
+          </label>
+        )}
+        {supports('--no-warmup') && (
+          <label
+            className="flex items-center gap-2 text-xs text-slate-300"
+            title="Some ROCm builds segfault during the warmup run. Enable this if launching crashes immediately after loading."
+          >
+            <input
+              type="checkbox"
+              checked={draft.noWarmup}
+              disabled={live}
+              onChange={(e) => setDraft({ noWarmup: e.target.checked })}
+            />
+            Skip warmup (--no-warmup)
+          </label>
+        )}
+      </div>
 
       <Field label="Extra flags" hint="Passed through verbatim">
         <input

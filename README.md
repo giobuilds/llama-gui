@@ -20,6 +20,7 @@ it load, chat with it, swap models — without touching a shell.
 - streaming log pane with filtering and follow-tail
 - GPU device list and VRAM usage read from `llama-server --list-devices`
 - controls hidden automatically when the installed binary does not advertise the flag
+- crash diagnostics that name the likely cause instead of `exited unexpectedly (code null)`
 - adopts a `llama-server` left running by a previous session instead of spawning a rival
 - never leaks a child process: SIGTERM with a SIGKILL escalation, on stop *and* on app quit
 
@@ -34,6 +35,25 @@ plan for the full sequence.
 
 Fedora: `sudo dnf install llama-cpp`. The app also looks in `/usr/local/bin`,
 `/opt/llama.cpp/bin`, `~/.local/bin` and `~/llama.cpp/build/bin`.
+
+## Troubleshooting
+
+**`llama-server` crashes immediately after loading a model (SIGSEGV).**
+Some ROCm builds segfault in the HIP runtime the first time a compute kernel is
+launched. Reproduced here on Fedora 44 with `llama-cpp-b6153` on a gfx1032
+(RX 6600): the package is built against HIP `7.1.52802-9999`, and the coredump
+shows the fault in `libamdhip64.so.7` (`amd::Kernel::getDeviceKernel`) under
+`ggml_cuda_op_rms_norm`.
+
+The crash first shows up during the warmup run, so "Skip warmup (`--no-warmup`)"
+gets past launch — but it will then crash on the first real request instead,
+because the fault is in kernel launch, not warmup. Note that `-ngl 0` is *not*
+enough: ggml still schedules ops onto the registered HIP backend. To run purely
+on CPU, add `--device none` to the extra flags.
+
+If GPU inference crashes for you, the problem is the llama.cpp build, not this
+app or the model — verify with `llama-server` directly before filing anything
+here.
 
 ## Development
 

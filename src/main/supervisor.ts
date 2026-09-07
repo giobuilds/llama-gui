@@ -149,7 +149,7 @@ export class ServerSupervisor extends EventEmitter<SupervisorEvents> {
         this.setPhase('stopped', { error: null, stage: null })
       } else {
         this.setPhase('crashed', {
-          error: this.error ?? `llama-server exited unexpectedly (code ${code ?? 'null'})`,
+          error: this.error ?? this.describeCrash(code, signal),
           stage: null
         })
       }
@@ -157,6 +157,27 @@ export class ServerSupervisor extends EventEmitter<SupervisorEvents> {
 
     await this.writeHandoff({ pid: child.pid!, port, startedAt: this.startedAt, config })
     this.startHealthPolling()
+  }
+
+  /**
+   * "exited unexpectedly (code null)" tells a user nothing actionable. A signal
+   * is more informative than an absent exit code, and one failure mode is
+   * common enough to name: the warmup pass segfaults on some ROCm builds, which
+   * looks like a hard crash immediately after the warmup log line.
+   */
+  private describeCrash(code: number | null, signal: NodeJS.Signals | null): string {
+    const recent = this.logs.since(Math.max(0, this.logs.latestSeq - 5))
+    const diedInWarmup = recent.some((l) => /warming up the model/i.test(l.text))
+    const how = signal ? `was killed by ${signal}` : `exited with code ${code ?? 'unknown'}`
+
+    if (signal === 'SIGSEGV' && diedInWarmup && !this.config?.noWarmup) {
+      return (
+        `llama-server ${how} during the model warmup run. This is a known ` +
+        `failure on some ROCm builds rather than a problem with the model — ` +
+        `enable "Skip warmup (--no-warmup)" and launch again.`
+      )
+    }
+    return `llama-server ${how}.`
   }
 
   private wireStream(child: LlamaChild, name: 'stdout' | 'stderr'): void {
@@ -380,6 +401,7 @@ export function buildArgs(config: LaunchConfig, port: number): string[] {
     '--jinja'
   ]
   if (config.flashAttn) args.push('--flash-attn')
+  if (config.noWarmup) args.push('--no-warmup')
   if (config.threads > 0) args.push('--threads', String(config.threads))
   if (config.alias) args.push('--alias', config.alias)
   // Deliberately not passing --no-webui: the stock UI stays reachable as an
