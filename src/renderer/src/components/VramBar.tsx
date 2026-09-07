@@ -43,6 +43,13 @@ export function VramBar({ plan }: { plan: VramPlanView }): React.JSX.Element {
 
       <p className="mt-2 text-[11px] text-muted">
         {plan.offloadedLayers}/{plan.totalLayers} layers on GPU
+        {plan.slots > 1 && (
+          <>
+            {' · '}
+            {plan.slots} concurrent chats at{' '}
+            <span className="text-slate-200">{plan.contextPerSlot.toLocaleString()}</span> tokens each
+          </>
+        )}
         {plan.maxGpuLayers !== null && plan.maxGpuLayers < plan.totalLayers && (
           <> · most that should fit: <span className="text-slate-200">{plan.maxGpuLayers}</span></>
         )}

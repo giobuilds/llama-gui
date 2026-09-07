@@ -1,4 +1,4 @@
-import { useChatStore } from '../state/chatStore.js'
+import { activeConversation, useChatStore } from '../state/chatStore.js'
 
 /**
  * Per-conversation sampler settings and system prompt. They live with the
@@ -6,7 +6,7 @@ import { useChatStore } from '../state/chatStore.js'
  * conditions it was created under.
  */
 export function ChatSettings(): React.JSX.Element | null {
-  const active = useChatStore((s) => s.active)
+  const active = useChatStore(activeConversation)
   const setSettings = useChatStore((s) => s.setSettings)
   const setSystemPrompt = useChatStore((s) => s.setSystemPrompt)
   if (!active) return null
