@@ -11,7 +11,11 @@ const when = (ts: number): string => {
 
 export function ChatSidebar(): React.JSX.Element {
   const conversations = useChatStore((s) => s.conversations)
-  const activeId = useChatStore((s) => s.active?.id)
+  const activeId = useChatStore((s) => s.activeId)
+  // Conversations generating in the background get a live indicator, so work
+  // continuing off-screen is visible rather than silent.
+  const streamingIds = useChatStore((s) => Object.keys(s.streams).join(','))
+  const streaming = new Set(streamingIds ? streamingIds.split(',') : [])
   const open = useChatStore((s) => s.open)
   const create = useChatStore((s) => s.create)
   const remove = useChatStore((s) => s.remove)
@@ -41,6 +45,12 @@ export function ChatSidebar(): React.JSX.Element {
               }`}
             >
               <div className="flex items-baseline gap-2">
+                {streaming.has(c.id) && (
+                  <span
+                    title="Generating"
+                    className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-accent"
+                  />
+                )}
                 <span className="min-w-0 flex-1 truncate text-xs text-slate-100">{c.title}</span>
                 <span className="shrink-0 text-[10px] text-muted">{when(c.updatedAt)}</span>
               </div>

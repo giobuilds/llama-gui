@@ -3,6 +3,7 @@ import { LaunchPanel } from './views/LaunchPanel.js'
 import { LogPane } from './views/LogPane.js'
 import { Chat } from './views/Chat.js'
 import { subscribeToMain, useServerStore } from './state/serverStore.js'
+import { useChatStore } from './state/chatStore.js'
 import { StatusBadge } from './components/StatusBadge.js'
 
 type Tab = 'chat' | 'server'
@@ -16,6 +17,18 @@ export default function App(): React.JSX.Element {
     void init()
     return subscribeToMain()
   }, [init])
+
+  // A reply is persisted when it finishes, so closing mid-generation would drop
+  // whatever had streamed. Flush what is in flight before the window goes.
+  useEffect(() => {
+    const onUnload = (): void => {
+      const chat = useChatStore.getState()
+      chat.stopAll()
+      void chat.flushInFlight()
+    }
+    window.addEventListener('beforeunload', onUnload)
+    return () => window.removeEventListener('beforeunload', onUnload)
+  }, [])
 
   return (
     <div className="flex h-full flex-col">

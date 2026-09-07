@@ -42,7 +42,11 @@ export interface LaunchConfig {
    * with llama-cpp b6153), so it has to be switchable.
    */
   noWarmup: boolean
-  /** -np: parallel sequences. */
+  /**
+   * -np: how many conversations can generate at once. llama.cpp decodes one
+   * sequence per slot and queues the rest. Note that `-c` is the *total*
+   * context and is divided across slots, so more slots means less context each.
+   */
   parallel: number
   /** -t: generation threads. -1 lets llama.cpp decide. */
   threads: number
@@ -73,7 +77,9 @@ export const DEFAULT_LAUNCH_CONFIG: Omit<LaunchConfig, 'modelPath'> = {
   noWarmup: false,
   cacheTypeK: 'f16',
   cacheTypeV: 'f16',
-  parallel: 1,
+  // Matches llama.cpp's own default. Forcing 1 here would silently prevent
+  // concurrent conversations, which is the point of having slots at all.
+  parallel: 4,
   threads: -1,
   extraArgs: ''
 }
@@ -165,6 +171,8 @@ export interface VramPlanView {
   freeMiB: number | null
   fits: boolean | null
   maxGpuLayers: number | null
+  contextPerSlot: number
+  slots: number
   notes: string[]
 }
 

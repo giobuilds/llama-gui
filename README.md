@@ -49,6 +49,10 @@ to end:
   restores the conditions it was created under
 - reasoning output from thinking models shown separately and collapsed by default
 - throughput recorded per reply
+- **concurrent conversations**: llama.cpp decodes one sequence per slot, so
+  several chats can generate at once. Switching away does not interrupt a reply,
+  the sidebar marks conversations still generating, and a slot meter shows how
+  many of the server's slots are in use (and how many requests are queued)
 
 Model output is markdown-rendered into the DOM, so it is sanitised first — an
 unsanitised reply could otherwise carry a script tag or event-handler attribute
@@ -58,7 +62,6 @@ into the app.
 
 | Next | Why |
 |---|---|
-| multi-slot chat | llama.cpp serves 4 slots by default; several conversations can run at once against one loaded model |
 | per-model launch profiles | remember the flags that worked for each GGUF and reapply on select |
 | downloads via `llama download` | upstream already handles HF repos, quant selection and mmproj — no reason to reimplement it |
 | tuning playground with `llama bench` | one-click benchmarks turn sampler/quant tuning into evidence rather than guesswork |
@@ -107,8 +110,15 @@ Turn auto-fit off to drive it yourself.
 - **Backend reserve** (~190 MiB for ROCm) is counted, because on an 8 GB card
   omitting it makes the estimate optimistic exactly when that hurts most.
 
+Note that `-c` is the **total** context and llama.cpp divides it across slots:
+`-c 16384 --parallel 4` gives each conversation 4096 tokens and allocates one
+16384-cell cache, not four. The planner accounts for this and the launch panel
+shows the resulting per-chat context.
+
 Validated against real launches on an RX 6600: predicted 917 MiB vs 913 measured
-on a classic build, and 641 vs 647 on a modern one — 0.4% and 0.9%.
+on a classic build, and 641 vs 647 on a modern one — 0.4% and 0.9%. The
+multi-slot KV figure matches llama.cpp exactly (192.00 MiB at `-c 16384
+--parallel 4`).
 
 ## Requirements
 

@@ -158,7 +158,14 @@ export function LaunchPanel(): React.JSX.Element {
             </select>
           </Field>
         )}
-        <Field label="Parallel slots (-np)">
+        <Field
+          label="Concurrent chats (-np)"
+          hint={
+            plan && plan.slots > 1
+              ? `${plan.contextPerSlot.toLocaleString()} tokens each`
+              : 'Context is split across these'
+          }
+        >
           <input
             type="number"
             min={1}

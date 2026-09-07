@@ -1,12 +1,21 @@
 import { useEffect, useRef, useState } from 'react'
-import { useChatStore } from '../state/chatStore.js'
+import { activeConversation, isStreaming, useChatStore } from '../state/chatStore.js'
 import { useServerStore } from '../state/serverStore.js'
 import { Message } from '../components/Message.js'
 import { ChatSidebar } from '../components/ChatSidebar.js'
 import { ChatSettings } from '../components/ChatSettings.js'
+import { SlotMeter } from '../components/SlotMeter.js'
 
 export function Chat(): React.JSX.Element {
-  const { active, streamingId, error } = useChatStore()
+  const active = useChatStore(activeConversation)
+  const streaming = useChatStore((s) => (s.activeId ? isStreaming(s, s.activeId) : false))
+  const streamingMessageId = useChatStore((s) =>
+    s.activeId ? (s.streams[s.activeId]?.messageId ?? null) : null
+  )
+  const busyElsewhere = useChatStore(
+    (s) => Object.keys(s.streams).filter((id) => id !== s.activeId).length
+  )
+  const error = useChatStore((s) => s.error)
   const send = useChatStore((s) => s.send)
   const stop = useChatStore((s) => s.stop)
   const regenerate = useChatStore((s) => s.regenerate)
@@ -32,7 +41,7 @@ export function Chat(): React.JSX.Element {
     if (!stickToBottom.current) return
     const el = scrollRef.current
     if (el) el.scrollTop = el.scrollHeight
-  }, [active?.messages, streamingId])
+  }, [active?.messages, streaming])
 
   const onScroll = (): void => {
     const el = scrollRef.current
@@ -41,7 +50,7 @@ export function Chat(): React.JSX.Element {
   }
 
   const submit = (): void => {
-    if (!input.trim() || streamingId) return
+    if (!input.trim() || streaming) return
     const text = input
     setInput('')
     stickToBottom.current = true
@@ -60,6 +69,7 @@ export function Chat(): React.JSX.Element {
           <h2 className="min-w-0 flex-1 truncate text-sm font-medium">
             {active?.title ?? 'New chat'}
           </h2>
+          <SlotMeter />
           <button
             type="button"
             onClick={() => setShowSettings((v) => !v)}
@@ -70,6 +80,13 @@ export function Chat(): React.JSX.Element {
         </header>
 
         {showSettings && <ChatSettings />}
+
+        {busyElsewhere > 0 && (
+          <p className="border-b border-edge bg-ink/40 px-4 py-1.5 text-[11px] text-muted">
+            {busyElsewhere} other conversation{busyElsewhere === 1 ? ' is' : 's are'} still
+            generating in the background.
+          </p>
+        )}
 
         {!ready && (
           <p className="border-b border-amber-900/60 bg-amber-950/30 px-4 py-2 text-xs text-amber-200">
@@ -92,8 +109,8 @@ export function Chat(): React.JSX.Element {
               <Message
                 key={m.id}
                 message={m}
-                streaming={m.id === streamingId}
-                canRegenerate={m.id === lastAssistant?.id && !streamingId}
+                streaming={m.id === streamingMessageId}
+                canRegenerate={m.id === lastAssistant?.id && !streaming}
                 onEdit={(content) => void editUserMessage(m.id, content)}
                 onDelete={() => void deleteMessage(m.id)}
                 onRegenerate={() => void regenerate()}
@@ -128,10 +145,10 @@ export function Chat(): React.JSX.Element {
               className="max-h-56 flex-1 resize-none rounded-md border border-edge bg-ink px-3 py-2
                          text-sm outline-none focus:border-accent disabled:opacity-50"
             />
-            {streamingId ? (
+            {streaming ? (
               <button
                 type="button"
-                onClick={stop}
+                onClick={() => stop()}
                 className="rounded-md border border-edge px-4 py-2 text-sm hover:border-rose-500 hover:text-rose-200"
               >
                 Stop

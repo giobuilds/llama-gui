@@ -66,6 +66,9 @@ export interface VramPlan {
   fits: boolean | null
   /** Largest -ngl that is expected to fit, or null without a device. */
   maxGpuLayers: number | null
+  /** Context each concurrent conversation actually gets: total / slots. */
+  contextPerSlot: number
+  slots: number
   /** Human-readable arithmetic, shown in the UI so the estimate is auditable. */
   notes: string[]
 }
@@ -170,7 +173,11 @@ export function planVram(input: PlanInput, freeMiB: number | null): VramPlan {
   // KV lives with the layers it belongs to, so a partial offload only puts a
   // proportional slice of the cache in VRAM.
   const kvLayers = Math.min(offloadedLayers, meta.blockCount ?? 0)
-  const kv = kvCacheBytes(meta, contextSize * parallel, cacheTypeK, cacheTypeV, kvLayers) ?? 0
+  // -c is the TOTAL context, which llama.cpp divides across slots: `-c 16384
+  // --parallel 4` gives each slot 4096 and allocates one 16384-cell cache, not
+  // four. Multiplying here would overstate the KV cache by the slot count.
+  const kv = kvCacheBytes(meta, contextSize, cacheTypeK, cacheTypeV, kvLayers) ?? 0
+  const contextPerSlot = Math.floor(contextSize / Math.max(1, parallel))
   const compute = anyOffload
     ? (computeBufferBytes(meta, ubatch, input.computeProfile ?? 'modern') ?? 0)
     : 0
@@ -186,9 +193,12 @@ export function planVram(input: PlanInput, freeMiB: number | null): VramPlan {
   if (kv > 0 && meta.embeddingLength && meta.headCount && meta.headCountKv) {
     const headDim = meta.embeddingLength / meta.headCount
     notes.push(
-      `KV: 2 x ${kvLayers} layers x ${contextSize * parallel} ctx x ` +
+      `KV: 2 x ${kvLayers} layers x ${contextSize} ctx x ` +
         `${headDim * meta.headCountKv} embd_gqa (${cacheTypeK}/${cacheTypeV})`
     )
+    if (parallel > 1) {
+      notes.push(`split across ${parallel} slots: ${contextPerSlot} tokens per conversation`)
+    }
   }
   if (compute > 0) {
     notes.push(
@@ -222,6 +232,8 @@ export function planVram(input: PlanInput, freeMiB: number | null): VramPlan {
     freeMiB,
     fits: freeMiB === null ? null : totalMiB <= freeMiB,
     maxGpuLayers,
+    contextPerSlot,
+    slots: parallel,
     notes
   }
 }
