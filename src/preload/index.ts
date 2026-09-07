@@ -6,7 +6,10 @@ import type {
   ConversationView,
   FitSuggestion,
   GpuDevice,
+  DownloadJob,
   HealthCheckResult,
+  HfFile,
+  HfModel,
   LaunchProfileView,
   IpcResponse,
   LaunchConfig,
@@ -68,6 +71,15 @@ const api = {
       cacheTypeV: string
       parallel: number
     }) => invoke<VramPlanView>(IPC.modelPlan, req)
+  },
+  downloads: {
+    search: (query: string) => invoke<HfModel[]>(IPC.hfSearch, query),
+    files: (repo: string) => invoke<HfFile[]>(IPC.hfFiles, repo),
+    start: (repo: string, file: string, expectedBytes: number) =>
+      invoke<DownloadJob>(IPC.downloadStart, { repo, file, expectedBytes }),
+    cancel: (id: string) => invoke<null>(IPC.downloadCancel, id),
+    list: () => invoke<DownloadJob[]>(IPC.downloadList),
+    onChanged: (cb: (job: DownloadJob) => void) => subscribe(IPC.downloadChanged, cb)
   },
   profiles: {
     /** The known-good settings remembered for a model, if any. */

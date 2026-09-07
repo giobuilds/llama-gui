@@ -38,6 +38,8 @@ to end:
   fine but cannot run inference is caught in seconds rather than mid-chat
 - **Per-model profiles**: the settings that last worked for a model are
   remembered and reapplied when you pick it again
+- **Model downloads**: search Hugging Face, pick a quant by name and size, and
+  download with live progress; finished models appear in the library
 
 ### Chat
 
@@ -64,7 +66,6 @@ into the app.
 
 | Next | Why |
 |---|---|
-| downloads via `llama download` | upstream already handles HF repos, quant selection and mmproj — no reason to reimplement it |
 | tuning playground with `llama bench` | one-click benchmarks turn sampler/quant tuning into evidence rather than guesswork |
 
 ## Which llama.cpp does it use?
@@ -97,6 +98,23 @@ to preview that decision.
 The planner is still worth having: it explains *why* a configuration costs what
 it does and updates live as you change settings, which a one-shot fitter cannot.
 Turn auto-fit off to drive it yourself.
+
+## Downloads
+
+Search and quant selection come from the Hugging Face API; the transfer itself
+is handed to `llama download`, which already resolves repos, matches quants,
+fetches a companion mmproj and writes the Hugging Face cache layout correctly.
+
+`llama download` reports no progress when it is not attached to a terminal — it
+writes nothing at all until it prints the final path. So progress is *observed*
+rather than parsed: the HF cache writes the incoming file as
+`blobs/<sha>.downloadInProgress`, and its size against the size the API reports
+gives an accurate percentage. Cancelling leaves the partial file in place, and
+starting the same download again resumes from it.
+
+Note that models land in `~/.cache/huggingface/hub`, where the snapshot entry is
+a *symlink* into `blobs/`. The library scan resolves symlinks for this reason;
+without that, nothing downloaded through the HF cache would ever appear.
 
 ## Per-model profiles
 

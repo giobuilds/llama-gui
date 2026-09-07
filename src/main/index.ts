@@ -7,12 +7,14 @@ import { SettingsStore } from './settings.js'
 import { ConversationStore } from './conversations.js'
 import { ProfileStore } from './profiles.js'
 import { recordSuccessfulLaunches } from './profileRecorder.js'
+import { DownloadManager } from './downloads.js'
 import { registerIpc, wireEvents } from './ipc.js'
 import type { BinaryInfo } from '@shared/types.js'
 
 const dirname = fileURLToPath(new URL('.', import.meta.url))
 
 let supervisor: ServerSupervisor | null = null
+let downloads: DownloadManager | null = null
 
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
@@ -106,8 +108,12 @@ async function bootstrap(): Promise<void> {
 
   supervisor = new ServerSupervisor(chosen, join(app.getPath('userData'), 'server.json'))
   recordSuccessfulLaunches(supervisor, profiles)
-  registerIpc(supervisor, settings, conversations, profiles, discovered)
-  wireEvents(supervisor)
+
+  // The manager reads the binary lazily so a binary swap is picked up without
+  // having to rebuild it.
+  downloads = new DownloadManager(() => supervisor!.binaryInfo)
+  registerIpc(supervisor, settings, conversations, profiles, downloads, discovered)
+  wireEvents(supervisor, downloads)
   await supervisor.adoptOrReap()
 
   createWindow()
@@ -141,6 +147,7 @@ if (!app.requestSingleInstanceLock()) {
     if (quitting || !supervisor || supervisor.status.pid === null) return
     event.preventDefault()
     quitting = true
+    downloads?.shutdown()
     void supervisor.shutdown().finally(() => app.quit())
   })
 }

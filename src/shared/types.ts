@@ -219,6 +219,39 @@ export interface HealthCheckResult {
   checkedAt: number
 }
 
+/** A GGUF-carrying repo on Hugging Face. */
+export interface HfModel {
+  id: string
+  downloads: number
+  likes: number
+  /** Gated repos need an accepted licence and a token, and fail confusingly without one. */
+  gated: boolean
+  lastModified: string | null
+}
+
+export interface HfFile {
+  path: string
+  size: number
+  /** Part of a multi-part model; only the first shard is offered. */
+  shard: boolean
+}
+
+export type DownloadState = 'running' | 'done' | 'failed' | 'cancelled'
+
+export interface DownloadJob {
+  id: string
+  repo: string
+  file: string
+  expectedBytes: number
+  receivedBytes: number
+  state: DownloadState
+  error: string | null
+  /** Absolute path of the finished file, printed by `llama download`. */
+  modelPath: string | null
+  startedAt: number
+  finishedAt: number | null
+}
+
 /** A remembered, known-good launch configuration for one model. */
 export interface LaunchProfileView {
   key: string

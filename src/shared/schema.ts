@@ -32,6 +32,24 @@ export const serverHandoffSchema = z.object({
 
 export type ServerHandoff = z.infer<typeof serverHandoffSchema>
 
+/** A download request from the renderer. */
+export const downloadRequestSchema = z.object({
+  // Repo ids are "org/name"; anything else would be interpolated into a
+  // filesystem path and a subprocess argument.
+  repo: z
+    .string()
+    .min(3)
+    .max(200)
+    .regex(/^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/, 'expected a Hugging Face repo id like org/name'),
+  file: z
+    .string()
+    .min(1)
+    .max(300)
+    .regex(/^[A-Za-z0-9._\/-]+\.gguf$/i, 'expected a .gguf file name')
+    .refine((f) => !f.includes('..'), 'path traversal is not allowed'),
+  expectedBytes: z.number().int().min(0)
+})
+
 /** A binary verification request from the renderer. */
 export const healthCheckRequestSchema = z.object({
   modelPath: z.string().min(1),

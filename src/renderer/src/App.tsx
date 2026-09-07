@@ -2,20 +2,29 @@ import { useEffect, useState } from 'react'
 import { LaunchPanel } from './views/LaunchPanel.js'
 import { LogPane } from './views/LogPane.js'
 import { Chat } from './views/Chat.js'
+import { Downloads } from './views/Downloads.js'
 import { subscribeToMain, useServerStore } from './state/serverStore.js'
 import { useChatStore } from './state/chatStore.js'
+import { subscribeToDownloads, useDownloadStore } from './state/downloadStore.js'
 import { StatusBadge } from './components/StatusBadge.js'
 
-type Tab = 'chat' | 'server'
+type Tab = 'chat' | 'server' | 'models'
 
 export default function App(): React.JSX.Element {
   const init = useServerStore((s) => s.init)
   const status = useServerStore((s) => s.status)
   const [tab, setTab] = useState<Tab>('chat')
 
+  const activeDownloads = useDownloadStore((s) => s.jobs.filter((j) => j.state === 'running').length)
+
   useEffect(() => {
     void init()
-    return subscribeToMain()
+    const offServer = subscribeToMain()
+    const offDownloads = subscribeToDownloads()
+    return () => {
+      offServer()
+      offDownloads()
+    }
   }, [init])
 
   // A reply is persisted when it finishes, so closing mid-generation would drop
@@ -39,6 +48,14 @@ export default function App(): React.JSX.Element {
         <TabButton active={tab === 'server'} onClick={() => setTab('server')}>
           Server
         </TabButton>
+        <TabButton active={tab === 'models'} onClick={() => setTab('models')}>
+          Models
+          {activeDownloads > 0 && (
+            <span className="ml-1.5 rounded-full bg-accent px-1.5 text-[10px] text-ink">
+              {activeDownloads}
+            </span>
+          )}
+        </TabButton>
 
         <div className="ml-auto flex items-center gap-3 text-[11px] text-muted">
           {status?.phase === 'ready' && status.config?.modelPath && (
@@ -53,6 +70,8 @@ export default function App(): React.JSX.Element {
       <main className="min-h-0 flex-1">
         {tab === 'chat' ? (
           <Chat />
+        ) : tab === 'models' ? (
+          <Downloads />
         ) : (
           <div className="flex h-full">
             <LaunchPanel />
