@@ -1,0 +1,17 @@
+appId: dev.llamagui.app
+productName: llama-gui
+directories:
+  output: dist
+  buildResources: resources
+files:
+  - out/**
+  - package.json
+linux:
+  target:
+    - AppImage
+    - rpm
+  category: Development
+  synopsis: Control panel for llama.cpp
+  description: >-
+    Launch, monitor and tune llama-server without a terminal: pick a GGUF, see
+    what fits in VRAM, and chat with it.
