@@ -33,9 +33,23 @@ async function collect(dir: string, depth: number, out: string[]): Promise<void>
   }
   for (const e of entries) {
     const path = join(dir, e.name)
-    if (e.isDirectory()) {
+    // Hugging Face's cache stores snapshots/<sha>/<name>.gguf as a symlink into
+    // blobs/, so a plain isFile() check misses every model downloaded through
+    // the HF cache. Symlinks are resolved rather than skipped.
+    let isDir = e.isDirectory()
+    let isFile = e.isFile()
+    if (e.isSymbolicLink()) {
+      try {
+        const target = await stat(path)
+        isDir = target.isDirectory()
+        isFile = target.isFile()
+      } catch {
+        continue // dangling link
+      }
+    }
+    if (isDir) {
       await collect(path, depth + 1, out)
-    } else if (e.isFile() && e.name.toLowerCase().endsWith('.gguf')) {
+    } else if (isFile && e.name.toLowerCase().endsWith('.gguf')) {
       // A split model is "-00001-of-00003.gguf"; llama.cpp is handed the first
       // shard and finds the rest itself, so listing the others is just noise.
       const shard = e.name.match(/-(\d{5})-of-\d{5}\.gguf$/i)
