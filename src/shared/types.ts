@@ -27,6 +27,12 @@ export interface LaunchConfig {
   /** -ctk / -ctv: KV cache quantisation. */
   cacheTypeK: KvCacheType
   cacheTypeV: KvCacheType
+  /**
+   * --no-warmup: skip the empty warmup run. Normally worth keeping, but the
+   * warmup pass segfaults on some ROCm builds (reproduced on gfx1032 / RX 6600
+   * with llama-cpp b6153), so it has to be switchable.
+   */
+  noWarmup: boolean
   /** -np: parallel sequences. */
   parallel: number
   /** -t: generation threads. -1 lets llama.cpp decide. */
@@ -54,6 +60,7 @@ export const DEFAULT_LAUNCH_CONFIG: Omit<LaunchConfig, 'modelPath'> = {
   gpuLayers: 999,
   contextSize: 4096,
   flashAttn: true,
+  noWarmup: false,
   cacheTypeK: 'f16',
   cacheTypeV: 'f16',
   parallel: 1,

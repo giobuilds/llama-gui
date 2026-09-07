@@ -10,6 +10,7 @@ export const launchConfigSchema = z.object({
   gpuLayers: z.number().int().min(0).max(9999),
   contextSize: z.number().int().min(0).max(1 << 22),
   flashAttn: z.boolean(),
+  noWarmup: z.boolean(),
   cacheTypeK: z.enum(KV_CACHE_TYPES),
   cacheTypeV: z.enum(KV_CACHE_TYPES),
   parallel: z.number().int().min(1).max(64),
