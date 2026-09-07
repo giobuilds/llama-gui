@@ -10,6 +10,7 @@ import type {
   HealthCheckResult,
   HfFile,
   HfModel,
+  RemoteFit,
   LaunchProfileView,
   IpcResponse,
   LaunchConfig,
@@ -75,6 +76,8 @@ const api = {
   downloads: {
     search: (query: string) => invoke<HfModel[]>(IPC.hfSearch, query),
     files: (repo: string) => invoke<HfFile[]>(IPC.hfFiles, repo),
+    /** Whether each quant in a repo will fit this machine's VRAM. */
+    fit: (repo: string) => invoke<RemoteFit[]>(IPC.hfFit, repo),
     start: (repo: string, file: string, expectedBytes: number) =>
       invoke<DownloadJob>(IPC.downloadStart, { repo, file, expectedBytes }),
     cancel: (id: string) => invoke<null>(IPC.downloadCancel, id),

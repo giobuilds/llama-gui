@@ -198,9 +198,24 @@ const MAX_READ = 32 << 20 // 32 MiB — enough for very large tokenizer blocks
 export interface GgufHeader {
   kv: Map<string, GgufValue>
   arrayLengths: Map<string, number>
+  /** True when the buffer ran out before every key was read. */
+  truncated: boolean
 }
 
-export function parseGgufHeader(buf: Buffer): GgufHeader {
+export interface ParseOptions {
+  /**
+   * Return the keys read so far instead of throwing when the buffer ends.
+   *
+   * Used when a header is fetched over HTTP with a Range request: the fields
+   * the planner needs (architecture, block count, embedding size, head counts)
+   * appear before the tokenizer arrays, which are the bulk of the block. Reading
+   * a megabyte and keeping what parsed beats fetching many more megabytes to
+   * reach a vocabulary list that barely moves the estimate.
+   */
+  allowTruncated?: boolean
+}
+
+export function parseGgufHeader(buf: Buffer, options: ParseOptions = {}): GgufHeader {
   const c = new Cursor(buf)
   if (c.u32() !== GGUF_MAGIC) throw new Error('gguf: bad magic (not a GGUF file)')
   const version = c.u32()
@@ -210,19 +225,28 @@ export function parseGgufHeader(buf: Buffer): GgufHeader {
 
   const kv = new Map<string, GgufValue>()
   const arrayLengths = new Map<string, number>()
+  let truncated = false
   for (let i = 0; i < kvCount; i++) {
-    const key = c.str()
-    const type = c.u32()
-    if (type === Gt.ARRAY) {
-      // Contents are skipped, but the length is kept — it is the only way to
-      // learn the vocabulary size without materialising 150k strings.
-      arrayLengths.set(key, skipArray(c))
-      kv.set(key, null)
-    } else {
-      kv.set(key, readValue(c, type))
+    try {
+      const key = c.str()
+      const type = c.u32()
+      if (type === Gt.ARRAY) {
+        // Contents are skipped, but the length is kept — it is the only way to
+        // learn the vocabulary size without materialising 150k strings.
+        arrayLengths.set(key, skipArray(c))
+        kv.set(key, null)
+      } else {
+        kv.set(key, readValue(c, type))
+      }
+    } catch (err) {
+      if (options.allowTruncated && err instanceof RangeError) {
+        truncated = true
+        break
+      }
+      throw err
     }
   }
-  return { kv, arrayLengths }
+  return { kv, arrayLengths, truncated }
 }
 
 /** "630M" -> 630_000_000, "7B" -> 7_000_000_000. */
