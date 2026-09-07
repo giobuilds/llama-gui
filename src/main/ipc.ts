@@ -2,6 +2,8 @@ import { ipcMain, dialog, BrowserWindow } from 'electron'
 import { ZodError } from 'zod'
 import type {
   BinaryInfo,
+  ConversationSummaryView,
+  ConversationView,
   FitSuggestion,
   GpuDevice,
   HealthCheckResult,
@@ -19,6 +21,7 @@ import { scanModels, defaultModelDirs, type ModelEntry } from './registry.js'
 import { planVram } from './planner.js'
 import { fitParams } from './fit.js'
 import { runHealthCheck } from './health.js'
+import { conversationSchema, type ConversationStore } from './conversations.js'
 import { planRequestSchema, healthCheckRequestSchema } from '@shared/schema.js'
 import type { SettingsStore } from './settings.js'
 
@@ -49,6 +52,7 @@ function describeError(err: unknown): string {
 export function registerIpc(
   supervisor: ServerSupervisor,
   settings: SettingsStore,
+  conversations: ConversationStore,
   /** Every llama.cpp install found at startup, best first. */
   discovered: BinaryInfo[]
 ): void {
@@ -177,6 +181,21 @@ export function registerIpc(
     }
     modelCache = null
     return dir
+  })
+
+  handle<ConversationSummaryView[]>(IPC.chatList, () => conversations.list())
+  handle<ConversationView | null>(IPC.chatGet, (id) => conversations.get(String(id ?? '')))
+  handle<ConversationView>(IPC.chatCreate, (systemPrompt) =>
+    conversations.create(typeof systemPrompt === 'string' ? systemPrompt : '')
+  )
+  handle<ConversationView>(IPC.chatSave, (raw) =>
+    // Conversation content is model output written back through the renderer,
+    // so it is validated before it is persisted.
+    conversations.save(conversationSchema.parse(raw))
+  )
+  handle<null>(IPC.chatDelete, async (id) => {
+    await conversations.remove(String(id ?? ''))
+    return null
   })
 
   handle<string | null>(IPC.pickModelFile, async () => {

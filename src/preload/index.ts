@@ -2,6 +2,8 @@ import { contextBridge, ipcRenderer } from 'electron'
 import { IPC } from '@shared/ipc.js'
 import type {
   BinaryInfo,
+  ConversationSummaryView,
+  ConversationView,
   FitSuggestion,
   GpuDevice,
   HealthCheckResult,
@@ -65,6 +67,13 @@ const api = {
       cacheTypeV: string
       parallel: number
     }) => invoke<VramPlanView>(IPC.modelPlan, req)
+  },
+  chat: {
+    list: () => invoke<ConversationSummaryView[]>(IPC.chatList),
+    get: (id: string) => invoke<ConversationView | null>(IPC.chatGet, id),
+    create: (systemPrompt?: string) => invoke<ConversationView>(IPC.chatCreate, systemPrompt ?? ''),
+    save: (conversation: ConversationView) => invoke<ConversationView>(IPC.chatSave, conversation),
+    remove: (id: string) => invoke<null>(IPC.chatDelete, id)
   },
   dialog: {
     pickModelFile: () => invoke<string | null>(IPC.pickModelFile),

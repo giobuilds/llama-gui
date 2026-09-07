@@ -15,6 +15,11 @@ export const IPC = {
   modelPlan: 'models:plan',
   modelFit: 'models:fit',
   binaryHealthCheck: 'binary:health-check',
+  chatList: 'chat:list',
+  chatGet: 'chat:get',
+  chatSave: 'chat:save',
+  chatCreate: 'chat:create',
+  chatDelete: 'chat:delete',
   pickModelFile: 'dialog:pick-model',
   pickModelDir: 'dialog:pick-model-dir'
 } as const
