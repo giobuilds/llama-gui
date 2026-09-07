@@ -7,6 +7,7 @@ import type {
   FitSuggestion,
   GpuDevice,
   HealthCheckResult,
+  LaunchProfileView,
   IpcResponse,
   LaunchConfig,
   LogLine,
@@ -67,6 +68,12 @@ const api = {
       cacheTypeV: string
       parallel: number
     }) => invoke<VramPlanView>(IPC.modelPlan, req)
+  },
+  profiles: {
+    /** The known-good settings remembered for a model, if any. */
+    get: (modelPath: string) => invoke<LaunchProfileView | null>(IPC.profileGet, modelPath),
+    list: () => invoke<LaunchProfileView[]>(IPC.profileList),
+    forget: (modelPath: string) => invoke<null>(IPC.profileForget, modelPath)
   },
   chat: {
     list: () => invoke<ConversationSummaryView[]>(IPC.chatList),

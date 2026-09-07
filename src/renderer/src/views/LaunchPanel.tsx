@@ -5,6 +5,7 @@ import { StatusBadge } from '../components/StatusBadge.js'
 import { ModelPicker } from '../components/ModelPicker.js'
 import { VramBar } from '../components/VramBar.js'
 import { HealthCheck } from '../components/HealthCheck.js'
+import { ProfileBadge } from '../components/ProfileBadge.js'
 
 /** Phases in which a new launch must not be attempted. */
 const LIVE_PHASES = new Set(['starting', 'loading', 'ready', 'degraded', 'stopping'])
@@ -59,6 +60,8 @@ export function LaunchPanel(): React.JSX.Element {
       )}
 
       <ModelPicker disabled={live} />
+
+      <ProfileBadge disabled={live} />
 
       {supports('--fit') && (
         <section className="rounded-md border border-edge bg-ink/60 p-3">

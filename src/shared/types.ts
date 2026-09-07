@@ -219,6 +219,17 @@ export interface HealthCheckResult {
   checkedAt: number
 }
 
+/** A remembered, known-good launch configuration for one model. */
+export interface LaunchProfileView {
+  key: string
+  modelPath: string
+  modelName: string
+  config: Omit<LaunchConfig, 'modelPath'>
+  lastUsedAt: number
+  loadMs: number | null
+  actualContext: number | null
+}
+
 export interface ChatSettingsView {
   temperature: number
   topP: number

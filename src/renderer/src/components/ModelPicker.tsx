@@ -20,7 +20,7 @@ export function ModelPicker({ disabled }: { disabled: boolean }): React.JSX.Elem
   const models = useServerStore((s) => s.models)
   const loading = useServerStore((s) => s.modelsLoading)
   const selected = useServerStore((s) => s.draft.modelPath)
-  const setDraft = useServerStore((s) => s.setDraft)
+  const selectModel = useServerStore((s) => s.selectModel)
   const loadModels = useServerStore((s) => s.loadModels)
   const addModelDir = useServerStore((s) => s.addModelDir)
   const [query, setQuery] = useState('')
@@ -106,7 +106,7 @@ export function ModelPicker({ disabled }: { disabled: boolean }): React.JSX.Elem
                 model={m}
                 active={m.path === selected}
                 onPick={() => {
-                  setDraft({ modelPath: m.path })
+                  void selectModel(m.path)
                   setOpen(false)
                   setQuery('')
                 }}
@@ -117,7 +117,7 @@ export function ModelPicker({ disabled }: { disabled: boolean }): React.JSX.Elem
             type="button"
             onClick={async () => {
               const path = await window.llama.dialog.pickModelFile()
-              if (path) setDraft({ modelPath: path })
+              if (path) await selectModel(path)
               setOpen(false)
             }}
             className="w-full border-t border-edge px-2.5 py-2 text-left text-[11px] text-muted hover:text-accent"

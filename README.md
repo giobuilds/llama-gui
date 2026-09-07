@@ -36,6 +36,8 @@ to end:
   `fit-params` recommends
 - **Binary check**: loads the model and generates tokens, so a build that starts
   fine but cannot run inference is caught in seconds rather than mid-chat
+- **Per-model profiles**: the settings that last worked for a model are
+  remembered and reapplied when you pick it again
 
 ### Chat
 
@@ -62,7 +64,6 @@ into the app.
 
 | Next | Why |
 |---|---|
-| per-model launch profiles | remember the flags that worked for each GGUF and reapply on select |
 | downloads via `llama download` | upstream already handles HF repos, quant selection and mmproj — no reason to reimplement it |
 | tuning playground with `llama bench` | one-click benchmarks turn sampler/quant tuning into evidence rather than guesswork |
 
@@ -96,6 +97,19 @@ to preview that decision.
 The planner is still worth having: it explains *why* a configuration costs what
 it does and updates live as you change settings, which a one-shot fitter cannot.
 Turn auto-fit off to drive it yourself.
+
+## Per-model profiles
+
+Every model wants different flags, and rediscovering them each time is the exact
+friction this app exists to remove. A profile is written **only once a launch has
+reached `ready`**, so what is stored is a configuration known to work rather than
+whatever was last typed into the form — a launch that crashes is not remembered.
+
+Models are identified by file name and size rather than path, so moving a GGUF
+between folders keeps its settings while two genuinely different models cannot
+collide. Profiles also record how long the model took to load and the context
+llama.cpp actually settled on, which under auto-fit is otherwise not visible
+anywhere.
 
 ## How the VRAM estimate works
 

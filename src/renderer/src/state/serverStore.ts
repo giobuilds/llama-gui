@@ -4,6 +4,7 @@ import type {
   FitSuggestion,
   GpuDevice,
   HealthCheckResult,
+  LaunchProfileView,
   LaunchConfig,
   LogLine,
   ModelEntryView,
@@ -26,6 +27,10 @@ interface ServerState {
   fitLoading: boolean
   health: HealthCheckResult | null
   healthRunning: boolean
+  /** Remembered settings for the selected model, if it has been launched before. */
+  profile: LaunchProfileView | null
+  /** True while the draft still matches the profile that was applied. */
+  profileApplied: boolean
   logs: LogLine[]
   lastSeq: number
   draft: LaunchConfig
@@ -39,6 +44,8 @@ interface ServerState {
   refreshPlan: () => Promise<void>
   refreshFit: () => Promise<void>
   runHealthCheck: () => Promise<void>
+  selectModel: (modelPath: string) => Promise<void>
+  forgetProfile: () => Promise<void>
   pullLogs: () => Promise<void>
   setDraft: (patch: Partial<LaunchConfig>) => void
   start: () => Promise<void>
@@ -59,6 +66,8 @@ export const useServerStore = create<ServerState>((set, get) => ({
   fitLoading: false,
   health: null,
   healthRunning: false,
+  profile: null,
+  profileApplied: false,
   logs: [],
   lastSeq: 0,
   draft: { modelPath: '', ...DEFAULT_LAUNCH_CONFIG },
@@ -73,7 +82,15 @@ export const useServerStore = create<ServerState>((set, get) => ({
     ])
     set({ status, binary, binaries, devices: binary.devices })
     // Adopting a running server means its config is the truth, not our defaults.
-    if (status.config) set({ draft: status.config })
+    if (status.config) {
+      set({ draft: status.config })
+      try {
+        const profile = await window.llama.profiles.get(status.config.modelPath)
+        set({ profile, profileApplied: Boolean(profile) })
+      } catch {
+        // No profile yet is normal.
+      }
+    }
     await Promise.all([get().pullLogs(), get().loadModels()])
     void get().refreshFit()
   },
@@ -189,8 +206,48 @@ export const useServerStore = create<ServerState>((set, get) => ({
     }
   },
 
+  /**
+   * Choosing a model applies whatever settings last worked for it. Without this
+   * you rediscover the same context and offload limits every time you come back
+   * to a model, which is the pain this app exists to remove.
+   */
+  async selectModel(modelPath) {
+    const previous = get().draft.modelPath
+    if (modelPath === previous) return
+    set({ health: null, fit: null, profile: null, profileApplied: false })
+
+    let profile: LaunchProfileView | null = null
+    try {
+      profile = await window.llama.profiles.get(modelPath)
+    } catch {
+      // A missing profile is the normal case for a new model.
+    }
+
+    set((s) => ({
+      draft: profile ? { ...s.draft, ...profile.config, modelPath } : { ...s.draft, modelPath },
+      profile,
+      profileApplied: Boolean(profile)
+    }))
+    void get().refreshPlan()
+    void get().refreshFit()
+  },
+
+  async forgetProfile() {
+    const { draft } = get()
+    if (!draft.modelPath) return
+    try {
+      await window.llama.profiles.forget(draft.modelPath)
+      set({ profile: null, profileApplied: false })
+    } catch (err) {
+      set({ error: (err as Error).message })
+    }
+  },
+
   setDraft(patch) {
     const prevModel = get().draft.modelPath
+    // Editing any launch setting means the draft is no longer the remembered
+    // configuration, and the badge should stop claiming otherwise.
+    if (Object.keys(patch).some((k) => k !== 'modelPath')) set({ profileApplied: false })
     set((s) => ({ draft: { ...s.draft, ...patch } }))
     // Every knob changes the VRAM estimate, so it is recomputed continuously.
     void get().refreshPlan()
@@ -210,7 +267,8 @@ export const useServerStore = create<ServerState>((set, get) => ({
     }
     set({ busy: true, error: null })
     try {
-      set({ status: await window.llama.server.start(draft) })
+      const status = await window.llama.server.start(draft)
+      set({ status })
     } catch (err) {
       set({ error: (err as Error).message })
     } finally {
@@ -245,8 +303,19 @@ export const useServerStore = create<ServerState>((set, get) => ({
 /** Wire the push events from main into the store. Called once at mount. */
 export function subscribeToMain(): () => void {
   const store = useServerStore
+  let wasReady = false
   const offStatus = window.llama.server.onStatus((status) => {
     store.setState({ status })
+    // Main records a profile once a launch actually reaches ready, so the badge
+    // only becomes accurate after that write has happened.
+    const nowReady = status.phase === 'ready'
+    if (nowReady && !wasReady && status.config?.modelPath) {
+      void window.llama.profiles
+        .get(status.config.modelPath)
+        .then((profile) => store.setState({ profile, profileApplied: Boolean(profile) }))
+        .catch(() => {})
+    }
+    wasReady = nowReady
   })
   const offLogs = window.llama.logs.onChanged(() => {
     void store.getState().pullLogs()
