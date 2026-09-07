@@ -402,13 +402,14 @@ export class ServerSupervisor extends EventEmitter<SupervisorEvents> {
  * takes an explicit on/off rather than being a bare boolean.
  */
 export function buildArgs(config: LaunchConfig, port: number, binary: BinaryInfo): string[] {
+  const canFit = binary.flags.includes('--fit')
+  const autoFit = config.autoFit && canFit
+
   const args: string[] = [
     ...binary.argvPrefix,
     '--model', config.modelPath,
     '--host', '127.0.0.1',
     '--port', String(port),
-    '--ctx-size', String(config.contextSize),
-    '--gpu-layers', String(config.gpuLayers),
     '--parallel', String(config.parallel),
     '--cache-type-k', config.cacheTypeK,
     '--cache-type-v', config.cacheTypeV,
@@ -419,6 +420,15 @@ export function buildArgs(config: LaunchConfig, port: number, binary: BinaryInfo
     // Use the model's own chat template rather than a guessed one.
     '--jinja'
   ]
+
+  if (autoFit) {
+    // -ngl and -c are deliberately omitted: --fit only adjusts arguments that
+    // were left unset, so setting them here would silently disable it.
+    args.push('--fit', 'on')
+  } else {
+    args.push('--ctx-size', String(config.contextSize))
+    args.push('--gpu-layers', String(config.gpuLayers))
+  }
   if (binary.flashAttnStyle === 'value') {
     args.push('--flash-attn', config.flashAttn ? 'on' : 'off')
   } else if (config.flashAttn) {

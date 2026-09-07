@@ -32,6 +32,10 @@ to end:
 - **VRAM planner**: shows what a launch will cost before you start it, broken
   into weights / KV cache / compute / backend reserve, and names the largest
   `-ngl` that should fit
+- **Auto-fit**: hands sizing to llama.cpp's own `--fit`, and previews what
+  `fit-params` recommends
+- **Binary check**: loads the model and generates tokens, so a build that starts
+  fine but cannot run inference is caught in seconds rather than mid-chat
 
 Not yet built: chat (M3), tuning playground (M4), Hugging Face downloads (M5).
 See the milestone table in the plan for the full sequence.
@@ -54,6 +58,18 @@ They differ in argv: the unified CLI needs the `serve` subcommand and takes
 `--flash-attn on|off|auto`, where the standalone binary treats `--flash-attn` as
 a bare boolean. Passing the wrong form makes llama.cpp exit during argument
 parsing, so the app adapts per binary rather than assuming one.
+
+## Auto-fit vs. the planner
+
+Modern llama.cpp defaults `--fit on`, adjusting *unset* arguments to fit device
+memory — and passing an explicit `-ngl`/`-c` silently suppresses it. Auto-fit
+mode therefore omits both on purpose and lets llama.cpp decide, since it knows
+its own allocator better than any external estimate. `llama fit-params` is used
+to preview that decision.
+
+The planner is still worth having: it explains *why* a configuration costs what
+it does and updates live as you change settings, which a one-shot fitter cannot.
+Turn auto-fit off to drive it yourself.
 
 ## How the VRAM estimate works
 

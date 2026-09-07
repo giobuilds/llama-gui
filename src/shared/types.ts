@@ -18,6 +18,15 @@ export type ServerPhase =
 export interface LaunchConfig {
   /** Absolute path to a .gguf file. */
   modelPath: string
+  /**
+   * Let llama.cpp size the launch itself.
+   *
+   * Modern builds default `--fit on`, which adjusts *unset* arguments to fit
+   * device memory. Passing an explicit -ngl and -c suppresses that, so auto-fit
+   * works by deliberately omitting them and letting llama.cpp decide — it knows
+   * its own allocator better than any estimate can.
+   */
+  autoFit: boolean
   /** -ngl: layers to offload to VRAM. */
   gpuLayers: number
   /** -c: context size in tokens. */
@@ -57,6 +66,7 @@ export const KV_CACHE_TYPES = [
 export type KvCacheType = (typeof KV_CACHE_TYPES)[number]
 
 export const DEFAULT_LAUNCH_CONFIG: Omit<LaunchConfig, 'modelPath'> = {
+  autoFit: true,
   gpuLayers: 999,
   contextSize: 4096,
   flashAttn: true,
@@ -176,6 +186,29 @@ export interface ModelEntryView {
   vocabSize: number | null
   mtimeMs: number
   error?: string
+}
+
+/** What `llama fit-params` recommends for a model on this machine. */
+export interface FitSuggestion {
+  contextSize: number | null
+  /** -1 means "offload everything". */
+  gpuLayers: number | null
+  /** Raw argument string as printed, for display. */
+  raw: string
+}
+
+export type HealthStep = 'spawn' | 'load' | 'ready' | 'inference' | 'stop'
+
+export interface HealthCheckResult {
+  binaryPath: string
+  ok: boolean
+  /** Steps in the order they were attempted. */
+  steps: Array<{ step: HealthStep; ok: boolean; detail: string; ms: number }>
+  /** Populated when a step failed. */
+  error: string | null
+  /** Tokens per second from the probe request, when it got that far. */
+  tokensPerSecond: number | null
+  checkedAt: number
 }
 
 export interface IpcResult<T> {

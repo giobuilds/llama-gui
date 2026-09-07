@@ -7,6 +7,7 @@ import { KV_CACHE_TYPES } from './types.js'
  */
 export const launchConfigSchema = z.object({
   modelPath: z.string().min(1),
+  autoFit: z.boolean(),
   gpuLayers: z.number().int().min(0).max(9999),
   contextSize: z.number().int().min(0).max(1 << 22),
   flashAttn: z.boolean(),
@@ -30,6 +31,12 @@ export const serverHandoffSchema = z.object({
 })
 
 export type ServerHandoff = z.infer<typeof serverHandoffSchema>
+
+/** A binary verification request from the renderer. */
+export const healthCheckRequestSchema = z.object({
+  modelPath: z.string().min(1),
+  gpuLayers: z.number().int().min(0).max(9999)
+})
 
 /** A VRAM planning request from the renderer. */
 export const planRequestSchema = z.object({

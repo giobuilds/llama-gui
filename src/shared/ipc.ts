@@ -13,6 +13,8 @@ export const IPC = {
   modelsList: 'models:list',
   modelsRescan: 'models:rescan',
   modelPlan: 'models:plan',
+  modelFit: 'models:fit',
+  binaryHealthCheck: 'binary:health-check',
   pickModelFile: 'dialog:pick-model',
   pickModelDir: 'dialog:pick-model-dir'
 } as const
