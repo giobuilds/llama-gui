@@ -236,6 +236,26 @@ export interface HfFile {
   shard: boolean
 }
 
+/** How well a model is expected to run on this machine. */
+export type FitVerdict =
+  /** Every layer fits in VRAM. */
+  | 'full'
+  /** Some layers fit; the rest run on CPU, which is far slower. */
+  | 'partial'
+  /** Nothing meaningful fits in VRAM. */
+  | 'cpu'
+  /** The header could not be read, so no claim is made. */
+  | 'unknown'
+
+export interface RemoteFit {
+  file: string
+  verdict: FitVerdict
+  /** Estimated VRAM for a full offload at a 4k context, in MiB. */
+  totalMiB: number | null
+  maxGpuLayers: number | null
+  note: string | null
+}
+
 export type DownloadState = 'running' | 'done' | 'failed' | 'cancelled'
 
 export interface DownloadJob {

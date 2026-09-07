@@ -8,6 +8,7 @@ import type {
   FitSuggestion,
   HfFile,
   HfModel,
+  RemoteFit,
   GpuDevice,
   HealthCheckResult,
   LaunchProfileView,
@@ -28,6 +29,7 @@ import { runHealthCheck } from './health.js'
 import { conversationSchema, type ConversationStore } from './conversations.js'
 import type { ProfileStore } from './profiles.js'
 import { searchModels, listRepoFiles, type DownloadManager } from './downloads.js'
+import { estimateRepoFit } from './remoteFit.js'
 import { downloadRequestSchema } from '@shared/schema.js'
 import { planRequestSchema, healthCheckRequestSchema } from '@shared/schema.js'
 import type { SettingsStore } from './settings.js'
@@ -194,6 +196,33 @@ export function registerIpc(
 
   handle<HfModel[]>(IPC.hfSearch, (query) => searchModels(String(query ?? ''), 24))
   handle<HfFile[]>(IPC.hfFiles, (repo) => listRepoFiles(String(repo ?? '')))
+  /**
+   * Fit estimates cost a ranged HTTP fetch of each distinct model's header, so
+   * they are cached per repo. The answer only changes if the binary does, which
+   * the key accounts for.
+   */
+  const repoFitCache = new Map<string, RemoteFit[]>()
+  handle<RemoteFit[]>(IPC.hfFit, async (rawRepo) => {
+    const repo = String(rawRepo ?? '')
+    const binary = supervisor.binaryInfo
+    const key = `${binary.path}::${repo}`
+    const cached = repoFitCache.get(key)
+    if (cached) return cached
+
+    const files = await listRepoFiles(repo)
+    // Free VRAM is read now rather than reused from startup: what fits depends
+    // on what else is currently using the card.
+    let freeMiB: number | null = null
+    try {
+      freeMiB = (await readDevices(binary))[0]?.freeMiB ?? null
+    } catch {
+      freeMiB = null
+    }
+    const fits = await estimateRepoFit(repo, files, freeMiB, binary)
+    repoFitCache.set(key, fits)
+    return fits
+  })
+
   handle<DownloadJob[]>(IPC.downloadList, () => downloads.list())
   handle<DownloadJob>(IPC.downloadStart, async (raw) => {
     const req = downloadRequestSchema.parse(raw)

@@ -17,6 +17,7 @@ export const IPC = {
   binaryHealthCheck: 'binary:health-check',
   hfSearch: 'hf:search',
   hfFiles: 'hf:files',
+  hfFit: 'hf:fit',
   downloadStart: 'download:start',
   downloadCancel: 'download:cancel',
   downloadList: 'download:list',

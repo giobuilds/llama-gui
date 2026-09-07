@@ -1,6 +1,11 @@
 import { useEffect } from 'react'
-import { useDownloadStore } from '../state/downloadStore.js'
-import type { DownloadJob, HfFile } from '@shared/types.js'
+import {
+  FIT_RANK,
+  recommendedFile,
+  useDownloadStore
+} from '../state/downloadStore.js'
+import { useServerStore } from '../state/serverStore.js'
+import type { DownloadJob, FitVerdict, HfFile, RemoteFit } from '@shared/types.js'
 
 const mb = (b: number): string =>
   b >= 1e9 ? `${(b / 1e9).toFixed(2)} GB` : `${Math.round(b / 1e6)} MB`
@@ -17,7 +22,8 @@ const compact = (n: number): string =>
  */
 export function Downloads(): React.JSX.Element {
   const {
-    query, results, searching, expanded, files, filesLoading, jobs, error
+    query, results, searching, expanded, files, filesLoading,
+    fits, fitsLoading, sortBy, onlyFitting, jobs, error
   } = useDownloadStore()
   const setQuery = useDownloadStore((s) => s.setQuery)
   const search = useDownloadStore((s) => s.search)
@@ -25,6 +31,9 @@ export function Downloads(): React.JSX.Element {
   const start = useDownloadStore((s) => s.start)
   const cancel = useDownloadStore((s) => s.cancel)
   const clearError = useDownloadStore((s) => s.clearError)
+  const setSortBy = useDownloadStore((s) => s.setSortBy)
+  const setOnlyFitting = useDownloadStore((s) => s.setOnlyFitting)
+  const device = useServerStore((s) => s.devices[0] ?? null)
 
   useEffect(() => {
     if (results.length === 0) void search()
@@ -99,11 +108,53 @@ export function Downloads(): React.JSX.Element {
                     ) : files.length === 0 ? (
                       <p className="text-[11px] text-muted">No GGUF files in this repo.</p>
                     ) : (
-                      <ul className="space-y-1">
-                        {files.map((f) => (
-                          <FileRow key={f.path} repo={m.id} file={f} onStart={() => void start(m.id, f)} />
-                        ))}
-                      </ul>
+                      <>
+                        <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted">
+                          <span>
+                            {fitsLoading
+                              ? 'Checking what fits your GPU…'
+                              : device
+                                ? `Against ${device.freeMiB.toLocaleString()} MiB free on ${device.name}`
+                                : 'No GPU detected — everything runs on CPU'}
+                          </span>
+                          <label className="ml-auto flex items-center gap-1.5">
+                            Sort
+                            <select
+                              value={sortBy}
+                              onChange={(e) => setSortBy(e.target.value as 'size' | 'fit')}
+                              className="rounded border border-edge bg-ink px-1 py-0.5 text-[11px] outline-none focus:border-accent"
+                            >
+                              <option value="fit">best fit</option>
+                              <option value="size">size</option>
+                            </select>
+                          </label>
+                          <label className="flex items-center gap-1.5">
+                            <input
+                              type="checkbox"
+                              checked={onlyFitting}
+                              onChange={(e) => setOnlyFitting(e.target.checked)}
+                            />
+                            Only what fits
+                          </label>
+                        </div>
+                        <ul className="space-y-1">
+                          {orderFiles(files, fits, sortBy, onlyFitting).map((f) => (
+                            <FileRow
+                              key={f.path}
+                              file={f}
+                              fit={fits[f.path] ?? null}
+                              recommended={f.path === recommendedFile(files, fits)}
+                              onStart={() => void start(m.id, f)}
+                            />
+                          ))}
+                          {orderFiles(files, fits, sortBy, onlyFitting).length === 0 && (
+                            <li className="text-[11px] text-muted">
+                              None of these quantisations fit in VRAM. Uncheck the filter to
+                              download one anyway — it will run partly on CPU.
+                            </li>
+                          )}
+                        </ul>
+                      </>
                     )}
                   </div>
                 )}
@@ -133,23 +184,101 @@ export function Downloads(): React.JSX.Element {
   )
 }
 
+/** Ordering and filtering by how well each quantisation suits this machine. */
+function orderFiles(
+  files: HfFile[],
+  fits: Record<string, RemoteFit>,
+  sortBy: 'size' | 'fit',
+  onlyFitting: boolean
+): HfFile[] {
+  const visible = onlyFitting
+    ? files.filter((f) => {
+        const v = fits[f.path]?.verdict
+        // While estimates are still loading, hiding everything would look
+        // broken, so unknowns stay visible.
+        return v === 'full' || v === undefined || v === 'unknown'
+      })
+    : files
+  if (sortBy === 'size') return [...visible].sort((a, b) => a.size - b.size)
+  return [...visible].sort((a, b) => {
+    const va = fits[a.path]?.verdict ?? 'unknown'
+    const vb = fits[b.path]?.verdict ?? 'unknown'
+    const ra = FIT_RANK[va]
+    const rb = FIT_RANK[vb]
+    if (ra !== rb) return ra - rb
+    // Among models that fit, bigger is better: more bits at the same speed.
+    // Among those that do not, bigger is strictly worse — every extra gigabyte
+    // is more of the model spilling onto the CPU.
+    return va === 'full' ? b.size - a.size : a.size - b.size
+  })
+}
+
+const FIT_STYLE: Record<FitVerdict, { label: string; className: string; title: string }> = {
+  full: {
+    label: 'fits GPU',
+    className: 'bg-emerald-900/50 text-emerald-200',
+    title: 'Every layer is expected to fit in VRAM'
+  },
+  partial: {
+    label: 'partial',
+    className: 'bg-amber-900/50 text-amber-200',
+    title: 'Only some layers fit; the rest run on CPU, which is much slower'
+  },
+  cpu: {
+    label: 'CPU only',
+    className: 'bg-rose-900/50 text-rose-200',
+    title: 'Too large for VRAM — it would run on CPU'
+  },
+  unknown: {
+    label: '—',
+    className: 'bg-edge text-muted',
+    title: 'Could not read this model’s header, so no estimate is offered'
+  }
+}
+
 function FileRow({
   file,
+  fit,
+  recommended,
   onStart
 }: {
-  repo: string
   file: HfFile
+  fit: RemoteFit | null
+  recommended: boolean
   onStart: () => void
 }): React.JSX.Element {
   // The quant is the part of the name people actually choose by.
   const quant = file.path.match(/(?:^|[.\-_])((?:IQ|Q)\d[A-Z0-9_]*|F16|BF16|F32)/i)?.[1] ?? null
+  const style = FIT_STYLE[fit?.verdict ?? 'unknown']
+
   return (
-    <li className="flex items-center gap-2">
+    <li
+      className={`flex items-center gap-2 rounded px-1 py-0.5 ${
+        recommended ? 'bg-emerald-950/30 ring-1 ring-emerald-800/60' : ''
+      }`}
+    >
       <span className="min-w-0 flex-1 truncate text-[11px] text-slate-300" title={file.path}>
         {quant && (
           <span className="mr-1.5 rounded bg-edge px-1 text-[10px] text-slate-200">{quant}</span>
         )}
         {file.path}
+        {recommended && (
+          <span
+            className="ml-1.5 rounded bg-emerald-800/70 px-1 text-[10px] text-emerald-100"
+            title="Largest quantisation that still fits entirely in VRAM"
+          >
+            best for your GPU
+          </span>
+        )}
+      </span>
+
+      <span
+        className={`shrink-0 rounded px-1.5 text-[10px] ${style.className}`}
+        title={
+          fit?.totalMiB ? `${style.title} — about ${fit.totalMiB.toLocaleString()} MiB` : style.title
+        }
+      >
+        {style.label}
       </span>
       <span className="shrink-0 text-[11px] text-muted">{mb(file.size)}</span>
       <button
