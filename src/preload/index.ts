@@ -6,6 +6,8 @@ import type {
   ConversationView,
   FitSuggestion,
   GpuDevice,
+  BenchRequest,
+  BenchRunView,
   DownloadJob,
   HealthCheckResult,
   HfFile,
@@ -83,6 +85,12 @@ const api = {
     cancel: (id: string) => invoke<null>(IPC.downloadCancel, id),
     list: () => invoke<DownloadJob[]>(IPC.downloadList),
     onChanged: (cb: (job: DownloadJob) => void) => subscribe(IPC.downloadChanged, cb)
+  },
+  bench: {
+    start: (request: BenchRequest) => invoke<BenchRunView>(IPC.benchStart, request),
+    cancel: () => invoke<null>(IPC.benchCancel),
+    state: () => invoke<BenchRunView | null>(IPC.benchState),
+    onChanged: (cb: (run: BenchRunView) => void) => subscribe(IPC.benchChanged, cb)
   },
   profiles: {
     /** The known-good settings remembered for a model, if any. */

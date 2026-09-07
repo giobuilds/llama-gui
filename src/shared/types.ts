@@ -236,6 +236,59 @@ export interface HfFile {
   shard: boolean
 }
 
+/** One row of `llama bench` output. */
+export interface BenchResult {
+  /** Prompt processing and generation are different workloads with different speeds. */
+  kind: 'prompt' | 'generation'
+  tokensPerSecond: number
+  stddev: number
+  gpuLayers: number
+  threads: number
+  cacheTypeK: string
+  cacheTypeV: string
+  flashAttn: 'on' | 'off' | 'auto'
+  ubatch: number
+  nPrompt: number
+  nGen: number
+  backend: string
+  modelType: string
+  buildCommit: string
+}
+
+export interface BenchProgress {
+  current: number
+  total: number
+  stage: string
+}
+
+/**
+ * What to sweep. Empty arrays mean "leave llama.cpp's default alone"; several
+ * values in one array expand into every combination.
+ */
+export interface BenchRequest {
+  modelPath: string
+  nPrompt: number
+  nGen: number
+  repetitions: number
+  gpuLayers: number[]
+  threads: number[]
+  cacheTypes: string[]
+  flashAttn: string[]
+  ubatch: number[]
+}
+
+/** A benchmark run, as the renderer sees it. */
+export interface BenchRunView {
+  id: string
+  request: BenchRequest
+  results: BenchResult[]
+  progress: BenchProgress | null
+  state: 'running' | 'done' | 'failed'
+  error: string | null
+  startedAt: number
+  finishedAt: number | null
+}
+
 /** How well a model is expected to run on this machine. */
 export type FitVerdict =
   /** Every layer fits in VRAM. */

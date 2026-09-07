@@ -38,6 +38,7 @@ to end:
   fine but cannot run inference is caught in seconds rather than mid-chat
 - **Per-model profiles**: the settings that last worked for a model are
   remembered and reapplied when you pick it again
+- **Tuning**: benchmark launch settings with `llama bench` and apply the fastest
 - **Model downloads**: search Hugging Face, see which quantisations fit your GPU
   *before* downloading, and pull one with live progress
 
@@ -64,9 +65,8 @@ into the app.
 
 ## Roadmap
 
-| Next | Why |
-|---|---|
-| tuning playground with `llama bench` | one-click benchmarks turn sampler/quant tuning into evidence rather than guesswork |
+Everything on the original roadmap is now built. Natural next steps: multi-GPU
+splits, multimodal (`--mmproj`), speculative decoding, and serving on the LAN.
 
 ## Which llama.cpp does it use?
 
@@ -98,6 +98,24 @@ to preview that decision.
 The planner is still worth having: it explains *why* a configuration costs what
 it does and updates live as you change settings, which a one-shot fitter cannot.
 Turn auto-fit off to drive it yourself.
+
+## Tuning
+
+Benchmarks launch settings with `llama bench`, so choosing between flash
+attention, KV cache types, offload splits, thread counts and batch sizes is based
+on measurement rather than folklore. Results are split into generation and prompt
+processing — different workloads with different speeds — ranked with the gap to
+the best shown, and any row can be pushed straight into the launch settings.
+
+Sampler settings are deliberately absent. Temperature and top-p do not measurably
+change throughput, so benchmarking them would be measuring noise; sampler choice
+is a quality question and belongs in the chat view.
+
+Two llama.cpp constraints are handled rather than passed on: a quantised KV cache
+cannot create a context without flash attention, and `llama bench` crosses `-ctk`
+with `-ctv` when given lists, which would produce mismatched K/V pairs nobody
+asked for. Sweeps are therefore split into one run per cache type, with quantised
+types measured with flash attention on.
 
 ## Which model fits your machine
 
