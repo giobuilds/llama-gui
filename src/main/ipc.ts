@@ -1,10 +1,22 @@
 import { ipcMain, dialog, BrowserWindow } from 'electron'
 import { ZodError } from 'zod'
-import type { BinaryInfo, GpuDevice, IpcResponse, LogLine, ServerStatus } from '@shared/types.js'
+import type {
+  BinaryInfo,
+  GpuDevice,
+  IpcResponse,
+  LogLine,
+  ModelEntryView,
+  ServerStatus,
+  VramPlanView
+} from '@shared/types.js'
 import { IPC } from '@shared/ipc.js'
 import { launchConfigSchema } from '@shared/schema.js'
 import type { ServerSupervisor } from './supervisor.js'
-import { readDevices } from './probe.js'
+import { probeBinary, readDevices } from './probe.js'
+import { scanModels, defaultModelDirs, type ModelEntry } from './registry.js'
+import { planVram } from './planner.js'
+import { planRequestSchema } from '@shared/schema.js'
+import type { SettingsStore } from './settings.js'
 
 /** Wrap a handler so a thrown error becomes a typed failure instead of an opaque IPC rejection. */
 function handle<T>(channel: string, fn: (...args: unknown[]) => Promise<T> | T): void {
@@ -30,7 +42,12 @@ function describeError(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
 
-export function registerIpc(supervisor: ServerSupervisor, binary: BinaryInfo): void {
+export function registerIpc(
+  supervisor: ServerSupervisor,
+  settings: SettingsStore,
+  /** Every llama.cpp install found at startup, best first. */
+  discovered: BinaryInfo[]
+): void {
   handle<ServerStatus>(IPC.serverStatus, () => supervisor.status)
 
   handle<ServerStatus>(IPC.serverStart, async (raw) => {
@@ -50,9 +67,91 @@ export function registerIpc(supervisor: ServerSupervisor, binary: BinaryInfo): v
     return supervisor.logs.since(seq)
   })
 
-  handle<BinaryInfo>(IPC.binaryInfo, () => binary)
+  handle<BinaryInfo>(IPC.binaryInfo, () => supervisor.binaryInfo)
 
-  handle<GpuDevice[]>(IPC.binaryDevices, () => readDevices(binary.path))
+  /**
+   * Both shapes of llama.cpp are reported, not just the chosen one: a machine
+   * can have a current `llama serve` alongside a stale distro `llama-server`,
+   * and the user is the one who should decide which to drive.
+   */
+  handle<BinaryInfo[]>(IPC.binaryList, () => discovered)
+
+  handle<BinaryInfo>(IPC.binarySelect, async (rawPath) => {
+    const path = String(rawPath ?? '')
+    // Re-probe rather than trusting the cached entry: the binary may have been
+    // replaced (an update) since startup.
+    const known = discovered.find((b) => b.path === path)
+    const info = await probeBinary({ path, kind: known?.kind ?? 'unified' })
+    supervisor.setBinary(info)
+    await settings.patch({ binaryPath: path })
+    const idx = discovered.findIndex((b) => b.path === path)
+    if (idx >= 0) discovered[idx] = info
+    else discovered.push(info)
+    return info
+  })
+
+  handle<GpuDevice[]>(IPC.binaryDevices, () => readDevices(supervisor.binaryInfo))
+
+  // The scan touches only file headers, but it walks whole directory trees, so
+  // the result is cached and refreshed on demand rather than on every render.
+  let modelCache: ModelEntry[] | null = null
+  const listModels = async (force: boolean): Promise<ModelEntry[]> => {
+    if (!modelCache || force) {
+      modelCache = await scanModels([...defaultModelDirs(), ...settings.current.modelDirs])
+    }
+    return modelCache
+  }
+
+  handle<ModelEntryView[]>(IPC.modelsList, () => listModels(false))
+  handle<ModelEntryView[]>(IPC.modelsRescan, () => listModels(true))
+
+  handle<VramPlanView>(IPC.modelPlan, async (raw) => {
+    const req = planRequestSchema.parse(raw)
+    const models = await listModels(false)
+    const meta = models.find((m) => m.path === req.modelPath)
+    if (!meta) throw new Error('Model not found. Try rescanning.')
+    if (meta.error) throw new Error(`Cannot plan for this file: ${meta.error}`)
+
+    // Free VRAM is re-read here rather than reused from the startup probe:
+    // other processes take and release VRAM while the app is open.
+    let freeMiB: number | null = null
+    try {
+      const devices = await readDevices(supervisor.binaryInfo)
+      freeMiB = devices[0]?.freeMiB ?? null
+    } catch {
+      freeMiB = null
+    }
+    const binary = supervisor.binaryInfo
+    return planVram(
+      {
+        meta,
+        gpuLayers: req.gpuLayers,
+        contextSize: req.contextSize,
+        cacheTypeK: req.cacheTypeK,
+        cacheTypeV: req.cacheTypeV,
+        parallel: req.parallel,
+        // The unified CLI is the newer line, which sizes its compute buffer very
+        // differently from the classic standalone server.
+        computeProfile: binary.kind === 'unified' ? 'modern' : 'classic',
+        hasGpuBackend: binary.devices.length > 0
+      },
+      freeMiB
+    )
+  })
+
+  handle<string | null>(IPC.pickModelDir, async () => {
+    const r = await dialog.showOpenDialog({
+      title: 'Add a folder to scan for GGUF models',
+      properties: ['openDirectory']
+    })
+    if (r.canceled || !r.filePaths[0]) return null
+    const dir = r.filePaths[0]
+    if (!settings.current.modelDirs.includes(dir)) {
+      await settings.patch({ modelDirs: [...settings.current.modelDirs, dir] })
+    }
+    modelCache = null
+    return dir
+  })
 
   handle<string | null>(IPC.pickModelFile, async () => {
     const result = await dialog.showOpenDialog({

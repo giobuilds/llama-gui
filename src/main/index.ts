@@ -2,7 +2,8 @@ import { app, BrowserWindow, shell, session } from 'electron'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { ServerSupervisor } from './supervisor.js'
-import { findLlamaServer, probeBinary } from './probe.js'
+import { probeAll } from './probe.js'
+import { SettingsStore } from './settings.js'
 import { registerIpc, wireEvents } from './ipc.js'
 import type { BinaryInfo } from '@shared/types.js'
 
@@ -70,18 +71,32 @@ function applyCsp(): void {
 async function bootstrap(): Promise<void> {
   applyCsp()
 
-  const binPath = findLlamaServer(process.env['LLAMA_SERVER_PATH'])
-  let binary: BinaryInfo
-  if (binPath) {
-    binary = await probeBinary(binPath)
-  } else {
-    // The UI still opens — it shows a "cannot find llama-server" state rather
-    // than the app failing to launch at all.
-    binary = { path: '', version: 'not found', flags: [], devices: [] }
-  }
+  const settings = new SettingsStore(join(app.getPath('userData'), 'settings.json'))
+  await settings.load()
 
-  supervisor = new ServerSupervisor(binary.path, join(app.getPath('userData'), 'server.json'))
-  registerIpc(supervisor, binary)
+  const discovered = await probeAll(
+    settings.current.binaryPath ?? process.env['LLAMA_SERVER_PATH']
+  )
+  // A previously chosen binary wins; otherwise take the first discovered, which
+  // prefers the unified `llama` CLI over a possibly stale distro llama-server.
+  const chosen =
+    discovered.find((b) => b.path === settings.current.binaryPath) ??
+    discovered[0] ??
+    // The UI still opens with nothing installed — it shows a "not found" state
+    // rather than the app failing to launch at all.
+    ({
+      path: '',
+      kind: 'unified',
+      argvPrefix: [],
+      version: 'not found',
+      flags: [],
+      flashAttnStyle: 'bare',
+      devices: [],
+      label: 'no llama.cpp found'
+    } satisfies BinaryInfo)
+
+  supervisor = new ServerSupervisor(chosen, join(app.getPath('userData'), 'server.json'))
+  registerIpc(supervisor, settings, discovered)
   wireEvents(supervisor)
   await supervisor.adoptOrReap()
 

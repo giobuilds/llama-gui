@@ -6,7 +6,9 @@ import type {
   IpcResponse,
   LaunchConfig,
   LogLine,
-  ServerStatus
+  ModelEntryView,
+  ServerStatus,
+  VramPlanView
 } from '@shared/types.js'
 
 /**
@@ -41,10 +43,26 @@ const api = {
   },
   binary: {
     info: () => invoke<BinaryInfo>(IPC.binaryInfo),
+    /** Every llama.cpp install found, so the user can pick between them. */
+    list: () => invoke<BinaryInfo[]>(IPC.binaryList),
+    select: (path: string) => invoke<BinaryInfo>(IPC.binarySelect, path),
     devices: () => invoke<GpuDevice[]>(IPC.binaryDevices)
   },
+  models: {
+    list: () => invoke<ModelEntryView[]>(IPC.modelsList),
+    rescan: () => invoke<ModelEntryView[]>(IPC.modelsRescan),
+    plan: (req: {
+      modelPath: string
+      gpuLayers: number
+      contextSize: number
+      cacheTypeK: string
+      cacheTypeV: string
+      parallel: number
+    }) => invoke<VramPlanView>(IPC.modelPlan, req)
+  },
   dialog: {
-    pickModelFile: () => invoke<string | null>(IPC.pickModelFile)
+    pickModelFile: () => invoke<string | null>(IPC.pickModelFile),
+    pickModelDir: () => invoke<string | null>(IPC.pickModelDir)
   }
 }
 

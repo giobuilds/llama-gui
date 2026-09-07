@@ -30,3 +30,13 @@ export const serverHandoffSchema = z.object({
 })
 
 export type ServerHandoff = z.infer<typeof serverHandoffSchema>
+
+/** A VRAM planning request from the renderer. */
+export const planRequestSchema = z.object({
+  modelPath: z.string().min(1),
+  gpuLayers: z.number().int().min(0).max(9999),
+  contextSize: z.number().int().min(1).max(1 << 22),
+  cacheTypeK: z.enum(KV_CACHE_TYPES),
+  cacheTypeV: z.enum(KV_CACHE_TYPES),
+  parallel: z.number().int().min(1).max(64)
+})
