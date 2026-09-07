@@ -1,0 +1,449 @@
+import { spawn, type ChildProcessByStdio } from 'node:child_process'
+import type { Readable } from 'node:stream'
+import { EventEmitter } from 'node:events'
+import { createServer } from 'node:net'
+import { readFile, writeFile, rm } from 'node:fs/promises'
+import type { LaunchConfig, ServerPhase, ServerStatus } from '@shared/types.js'
+import { serverHandoffSchema, type ServerHandoff } from '@shared/schema.js'
+import { LogBuffer, LineSplitter } from './logBuffer.js'
+
+/** stdin is 'ignore', so the child has no writable stdin. */
+type LlamaChild = ChildProcessByStdio<null, Readable, Readable>
+
+const HEALTH_INTERVAL_MS = 1000
+const HEALTH_TIMEOUT_MS = 2000
+/** Consecutive failed health checks after 'ready' before we call it degraded. */
+const DEGRADED_AFTER = 3
+/** How long we wait for a polite SIGTERM before escalating to SIGKILL. */
+const TERM_GRACE_MS = 5000
+
+/**
+ * Log substrings that mark a lifecycle transition. Verified against the strings
+ * embedded in llama-server b6153 rather than assumed:
+ *   srv    load_model: loading model '%s'
+ *   main: model loaded
+ *   main: server is listening on %s - starting the main loop
+ *   main: failed to load model '%s'
+ */
+const STAGE_MARKERS: Array<{ match: RegExp; stage: string }> = [
+  { match: /loading model/i, stage: 'Loading model' },
+  { match: /model loaded/i, stage: 'Model loaded, warming up' },
+  { match: /HTTP server is listening/i, stage: 'Starting HTTP server' }
+]
+const FAILURE_MARKER = /failed to load (model|draft model|multimodal model)/i
+
+export interface SupervisorEvents {
+  status: [ServerStatus]
+  log: [] // a hint that new lines exist; renderer pulls the delta by seq
+}
+
+/**
+ * Owns exactly one llama-server child process.
+ *
+ * Readiness is decided by polling GET /health, not by log scraping: the log
+ * only tells us what stage we are in for display purposes, while /health is
+ * the authoritative signal (it returns 503 "Loading model" until the model is
+ * actually resident).
+ */
+export class ServerSupervisor extends EventEmitter<SupervisorEvents> {
+  readonly logs = new LogBuffer()
+
+  private child: LlamaChild | null = null
+  private phase: ServerPhase = 'stopped'
+  private port: number | null = null
+  private pid: number | null = null
+  private config: LaunchConfig | null = null
+  private loadStage: string | null = null
+  private error: string | null = null
+  private exitCode: number | null = null
+  private readyAt: number | null = null
+  private startedAt: number | null = null
+  private adopted = false
+
+  private healthTimer: NodeJS.Timeout | null = null
+  private healthFailures = 0
+  /** Set while stop() is in flight so the exit handler knows it was intentional. */
+  private stopping: Promise<void> | null = null
+
+  constructor(
+    private readonly binaryPath: string,
+    private readonly handoffPath: string
+  ) {
+    super()
+  }
+
+  get status(): ServerStatus {
+    return {
+      phase: this.phase,
+      pid: this.pid,
+      port: this.port,
+      config: this.config,
+      loadStage: this.loadStage,
+      startedAt: this.startedAt,
+      error: this.error,
+      exitCode: this.exitCode,
+      readyAt: this.readyAt,
+      adopted: this.adopted
+    }
+  }
+
+  get baseUrl(): string | null {
+    return this.port ? `http://127.0.0.1:${this.port}` : null
+  }
+
+  private setPhase(phase: ServerPhase, patch?: Partial<{ error: string | null; stage: string | null }>): void {
+    this.phase = phase
+    if (patch && 'error' in patch) this.error = patch.error ?? null
+    if (patch && 'stage' in patch) this.loadStage = patch.stage ?? null
+    this.emit('status', this.status)
+  }
+
+  private appendLog(stream: 'stdout' | 'stderr' | 'app', text: string): void {
+    this.logs.append(stream, text)
+    this.emit('log')
+  }
+
+  async start(config: LaunchConfig): Promise<void> {
+    if (this.child) throw new Error('A server is already running. Stop it first.')
+
+    const port = await pickFreePort()
+    const args = buildArgs(config, port)
+
+    this.config = config
+    this.port = port
+    this.exitCode = null
+    this.readyAt = null
+    this.adopted = false
+    this.healthFailures = 0
+    this.startedAt = Date.now()
+    this.setPhase('starting', { error: null, stage: 'Spawning process' })
+    this.appendLog('app', `$ ${this.binaryPath} ${args.join(' ')}`)
+
+    const child = spawn(this.binaryPath, args, {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      // Own process group, so a SIGKILL escalation can take down anything it forked.
+      detached: true
+    })
+    this.child = child
+    this.pid = child.pid ?? null
+
+    this.wireStream(child, 'stdout')
+    this.wireStream(child, 'stderr')
+
+    child.on('error', (err) => {
+      this.appendLog('app', `spawn failed: ${err.message}`)
+      this.child = null
+      this.pid = null
+      this.setPhase('crashed', { error: err.message, stage: null })
+    })
+
+    child.on('exit', (code, signal) => {
+      this.exitCode = code
+      this.stopHealthPolling()
+      this.appendLog('app', `process exited (code=${code ?? 'null'}, signal=${signal ?? 'none'})`)
+      const wasIntentional = this.stopping !== null
+      this.child = null
+      this.pid = null
+      void rm(this.handoffPath, { force: true })
+      if (wasIntentional) {
+        this.setPhase('stopped', { error: null, stage: null })
+      } else {
+        this.setPhase('crashed', {
+          error: this.error ?? `llama-server exited unexpectedly (code ${code ?? 'null'})`,
+          stage: null
+        })
+      }
+    })
+
+    await this.writeHandoff({ pid: child.pid!, port, startedAt: this.startedAt, config })
+    this.startHealthPolling()
+  }
+
+  private wireStream(child: LlamaChild, name: 'stdout' | 'stderr'): void {
+    const splitter = new LineSplitter()
+    const stream = child[name]
+    stream.setEncoding('utf8')
+    stream.on('data', (chunk: string) => {
+      for (const line of splitter.push(chunk)) this.handleLine(name, line)
+    })
+    stream.on('end', () => {
+      for (const line of splitter.flush()) this.handleLine(name, line)
+    })
+  }
+
+  private handleLine(stream: 'stdout' | 'stderr', line: string): void {
+    this.appendLog(stream, line)
+
+    if (FAILURE_MARKER.test(line)) {
+      // Record it, but let the exit handler decide the terminal phase — the
+      // process may still print more context before it goes.
+      this.error = line.trim()
+      this.emit('status', this.status)
+      return
+    }
+    if (this.phase === 'starting' || this.phase === 'loading') {
+      for (const { match, stage } of STAGE_MARKERS) {
+        if (match.test(line)) {
+          this.setPhase('loading', { stage })
+          return
+        }
+      }
+    }
+  }
+
+  private startHealthPolling(): void {
+    this.stopHealthPolling()
+    this.healthTimer = setInterval(() => void this.checkHealth(), HEALTH_INTERVAL_MS)
+  }
+
+  private stopHealthPolling(): void {
+    if (this.healthTimer) clearInterval(this.healthTimer)
+    this.healthTimer = null
+  }
+
+  private async checkHealth(): Promise<void> {
+    const url = this.baseUrl
+    if (!url) return
+    const healthy = await probeHealth(url)
+
+    if (healthy) {
+      this.healthFailures = 0
+      if (this.phase !== 'ready') {
+        this.readyAt = Date.now()
+        this.setPhase('ready', { error: null, stage: null })
+      }
+      return
+    }
+
+    // An adopted process has no 'exit' event to tell us it died, so its
+    // disappearance is detected here rather than being reported as 'degraded'.
+    if (this.adopted && this.pid !== null && !isAlive(this.pid)) {
+      this.stopHealthPolling()
+      this.appendLog('app', `adopted server pid ${this.pid} is gone`)
+      this.pid = null
+      this.adopted = false
+      void rm(this.handoffPath, { force: true })
+      this.setPhase('crashed', { error: 'The adopted llama-server exited.', stage: null })
+      return
+    }
+
+    // A 503 during startup is expected — that is llama-server saying "Loading model".
+    if (this.phase === 'ready') {
+      this.healthFailures += 1
+      if (this.healthFailures >= DEGRADED_AFTER) this.setPhase('degraded')
+    } else if (this.phase === 'degraded') {
+      this.healthFailures += 1
+    }
+  }
+
+  /** Idempotent: concurrent callers await the same shutdown. */
+  async stop(): Promise<void> {
+    if (this.stopping) return this.stopping
+
+    const child = this.child
+    const pid = this.pid
+    if (!child && pid == null) {
+      this.setPhase('stopped', { error: null, stage: null })
+      return
+    }
+
+    this.setPhase('stopping', { stage: null })
+    this.stopping = child
+      ? this.stopSpawned(child)
+      : // An adopted server is not our child: there is no 'exit' event to wait
+        // on, so liveness has to be polled. Without this branch Stop would
+        // report success while the process kept running and holding VRAM.
+        this.stopAdopted(pid!)
+
+    try {
+      await this.stopping
+    } finally {
+      this.stopping = null
+    }
+  }
+
+  private stopSpawned(child: LlamaChild): Promise<void> {
+    return new Promise<void>((resolve) => {
+      const pid = child.pid!
+      const escalation = setTimeout(() => {
+        this.appendLog('app', `did not exit after ${TERM_GRACE_MS}ms, sending SIGKILL`)
+        killGroup(pid, 'SIGKILL')
+      }, TERM_GRACE_MS)
+
+      child.once('exit', () => {
+        clearTimeout(escalation)
+        resolve()
+      })
+      killGroup(pid, 'SIGTERM')
+    })
+  }
+
+  private async stopAdopted(pid: number): Promise<void> {
+    this.appendLog('app', `stopping adopted server pid ${pid}`)
+    killGroup(pid, 'SIGTERM')
+
+    const deadline = Date.now() + TERM_GRACE_MS
+    while (Date.now() < deadline) {
+      if (!isAlive(pid)) break
+      await delay(150)
+    }
+    if (isAlive(pid)) {
+      this.appendLog('app', `adopted pid ${pid} ignored SIGTERM, sending SIGKILL`)
+      killGroup(pid, 'SIGKILL')
+      await delay(300)
+    }
+
+    this.stopHealthPolling()
+    this.pid = null
+    this.adopted = false
+    await rm(this.handoffPath, { force: true })
+    this.setPhase(isAlive(pid) ? 'degraded' : 'stopped', {
+      error: isAlive(pid) ? `could not terminate pid ${pid}` : null,
+      stage: null
+    })
+  }
+
+  /** Called on app quit. Best-effort and synchronous-ish; never throws. */
+  async shutdown(): Promise<void> {
+    try {
+      await this.stop()
+    } catch (err) {
+      this.appendLog('app', `shutdown error: ${(err as Error).message}`)
+    } finally {
+      this.stopHealthPolling()
+    }
+  }
+
+  private async writeHandoff(handoff: ServerHandoff): Promise<void> {
+    try {
+      await writeFile(this.handoffPath, JSON.stringify(handoff), 'utf8')
+    } catch (err) {
+      this.appendLog('app', `could not write handoff file: ${(err as Error).message}`)
+    }
+  }
+
+  /**
+   * On startup, a handoff file means a previous run left a server behind.
+   * If it is still alive and healthy we adopt it; if it is alive but not ours
+   * to trust, or dead, we clean up. This is what stops the app from leaking a
+   * second llama-server every time it crashes.
+   */
+  async adoptOrReap(): Promise<void> {
+    let handoff: ServerHandoff
+    try {
+      const raw = await readFile(this.handoffPath, 'utf8')
+      handoff = serverHandoffSchema.parse(JSON.parse(raw))
+    } catch {
+      return // no handoff, or unreadable — nothing to do
+    }
+
+    if (!isAlive(handoff.pid)) {
+      this.appendLog('app', `cleaning up stale handoff for dead pid ${handoff.pid}`)
+      await rm(this.handoffPath, { force: true })
+      return
+    }
+
+    const url = `http://127.0.0.1:${handoff.port}`
+    if (await probeHealth(url)) {
+      this.pid = handoff.pid
+      this.port = handoff.port
+      this.config = handoff.config
+      this.startedAt = handoff.startedAt
+      this.readyAt = Date.now()
+      this.adopted = true
+      this.appendLog('app', `adopted running llama-server pid ${handoff.pid} on port ${handoff.port}`)
+      this.setPhase('ready', { error: null, stage: null })
+      this.startHealthPolling()
+    } else {
+      this.appendLog('app', `pid ${handoff.pid} is alive but not healthy; leaving it alone`)
+      await rm(this.handoffPath, { force: true })
+    }
+  }
+}
+
+/** Translate the UI's config into llama-server argv. */
+export function buildArgs(config: LaunchConfig, port: number): string[] {
+  const args: string[] = [
+    '--model', config.modelPath,
+    '--host', '127.0.0.1',
+    '--port', String(port),
+    '--ctx-size', String(config.contextSize),
+    '--gpu-layers', String(config.gpuLayers),
+    '--parallel', String(config.parallel),
+    '--cache-type-k', config.cacheTypeK,
+    '--cache-type-v', config.cacheTypeV,
+    // Telemetry endpoints the GUI depends on. Off by default in llama-server.
+    '--slots',
+    '--metrics',
+    '--props',
+    // Use the model's own chat template rather than a guessed one.
+    '--jinja'
+  ]
+  if (config.flashAttn) args.push('--flash-attn')
+  if (config.threads > 0) args.push('--threads', String(config.threads))
+  if (config.alias) args.push('--alias', config.alias)
+  // Deliberately not passing --no-webui: the stock UI stays reachable as an
+  // escape hatch when something in this GUI misbehaves.
+  const extra = config.extraArgs.trim()
+  if (extra) args.push(...extra.split(/\s+/))
+  return args
+}
+
+/** Bind :0, note what the OS handed us, release it. Avoids hardcoding 8080. */
+export function pickFreePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const srv = createServer()
+    srv.unref()
+    srv.on('error', reject)
+    srv.listen(0, '127.0.0.1', () => {
+      const addr = srv.address()
+      if (addr && typeof addr === 'object') {
+        const { port } = addr
+        srv.close(() => resolve(port))
+      } else {
+        srv.close(() => reject(new Error('could not determine a free port')))
+      }
+    })
+  })
+}
+
+export async function probeHealth(baseUrl: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${baseUrl}/health`, {
+      signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS)
+    })
+    return res.ok
+  } catch {
+    return false
+  }
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+export function isAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (err) {
+    // EPERM means it exists but belongs to someone else.
+    return (err as NodeJS.ErrnoException).code === 'EPERM'
+  }
+}
+
+/**
+ * The child is spawned detached, so it leads its own process group and we can
+ * signal the whole group. Falls back to the bare pid if the group is gone.
+ */
+function killGroup(pid: number, signal: NodeJS.Signals): void {
+  try {
+    process.kill(-pid, signal)
+  } catch {
+    try {
+      process.kill(pid, signal)
+    } catch {
+      // already gone
+    }
+  }
+}

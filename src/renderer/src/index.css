@@ -1,0 +1,24 @@
+@import 'tailwindcss';
+
+@theme {
+  --color-ink: #0b0d12;
+  --color-panel: #12161f;
+  --color-edge: #222836;
+  --color-muted: #8b97ad;
+  --color-accent: #6ea8fe;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-ink);
+  color: #e6ebf5;
+  font-family: ui-sans-serif, system-ui, 'Cantarell', sans-serif;
+  font-size: 14px;
+  overflow: hidden;
+}
