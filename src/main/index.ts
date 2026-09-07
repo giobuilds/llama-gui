@@ -5,6 +5,8 @@ import { ServerSupervisor } from './supervisor.js'
 import { probeAll } from './probe.js'
 import { SettingsStore } from './settings.js'
 import { ConversationStore } from './conversations.js'
+import { ProfileStore } from './profiles.js'
+import { recordSuccessfulLaunches } from './profileRecorder.js'
 import { registerIpc, wireEvents } from './ipc.js'
 import type { BinaryInfo } from '@shared/types.js'
 
@@ -99,8 +101,12 @@ async function bootstrap(): Promise<void> {
   const conversations = new ConversationStore(join(app.getPath('userData'), 'conversations'))
   await conversations.init()
 
+  const profiles = new ProfileStore(join(app.getPath('userData'), 'profiles.json'))
+  await profiles.load()
+
   supervisor = new ServerSupervisor(chosen, join(app.getPath('userData'), 'server.json'))
-  registerIpc(supervisor, settings, conversations, discovered)
+  recordSuccessfulLaunches(supervisor, profiles)
+  registerIpc(supervisor, settings, conversations, profiles, discovered)
   wireEvents(supervisor)
   await supervisor.adoptOrReap()
 

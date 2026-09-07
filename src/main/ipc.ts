@@ -7,6 +7,7 @@ import type {
   FitSuggestion,
   GpuDevice,
   HealthCheckResult,
+  LaunchProfileView,
   IpcResponse,
   LogLine,
   ModelEntryView,
@@ -22,6 +23,7 @@ import { planVram } from './planner.js'
 import { fitParams } from './fit.js'
 import { runHealthCheck } from './health.js'
 import { conversationSchema, type ConversationStore } from './conversations.js'
+import type { ProfileStore } from './profiles.js'
 import { planRequestSchema, healthCheckRequestSchema } from '@shared/schema.js'
 import type { SettingsStore } from './settings.js'
 
@@ -53,6 +55,7 @@ export function registerIpc(
   supervisor: ServerSupervisor,
   settings: SettingsStore,
   conversations: ConversationStore,
+  profiles: ProfileStore,
   /** Every llama.cpp install found at startup, best first. */
   discovered: BinaryInfo[]
 ): void {
@@ -181,6 +184,15 @@ export function registerIpc(
     }
     modelCache = null
     return dir
+  })
+
+  handle<LaunchProfileView | null>(IPC.profileGet, (modelPath) =>
+    profiles.get(String(modelPath ?? ''))
+  )
+  handle<LaunchProfileView[]>(IPC.profileList, () => profiles.list())
+  handle<null>(IPC.profileForget, async (modelPath) => {
+    await profiles.forget(String(modelPath ?? ''))
+    return null
   })
 
   handle<ConversationSummaryView[]>(IPC.chatList, () => conversations.list())
