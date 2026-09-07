@@ -38,8 +38,8 @@ to end:
   fine but cannot run inference is caught in seconds rather than mid-chat
 - **Per-model profiles**: the settings that last worked for a model are
   remembered and reapplied when you pick it again
-- **Model downloads**: search Hugging Face, pick a quant by name and size, and
-  download with live progress; finished models appear in the library
+- **Model downloads**: search Hugging Face, see which quantisations fit your GPU
+  *before* downloading, and pull one with live progress
 
 ### Chat
 
@@ -98,6 +98,24 @@ to preview that decision.
 The planner is still worth having: it explains *why* a configuration costs what
 it does and updates live as you change settings, which a one-shot fitter cannot.
 Turn auto-fit off to drive it yourself.
+
+## Which model fits your machine
+
+Choosing between eight quantisations of the same model is the real difficulty,
+and the answer depends on the card in front of you. Each quantisation is
+labelled **fits GPU**, **partial** or **CPU only**, the list can be sorted by fit
+or filtered to what fits, and the largest quantisation that still fits entirely
+in VRAM is marked as the best choice — more bits is better quality, but spilling
+onto the CPU costs far more speed than the extra quality is worth.
+
+This works without downloading anything. The GGUF header is fetched with an HTTP
+Range request: one megabyte carries the architecture, layer count, embedding size
+and head counts, which is everything the VRAM planner needs. Quantisations of one
+model share a shape, so the header is read once per model and reused across its
+quants — a repo with twenty files costs one request, not twenty.
+
+Estimates assume a full offload at a 4k context, and inherit the accuracy of the
+planner described below.
 
 ## Downloads
 

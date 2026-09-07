@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { DownloadJob, HfFile, HfModel } from '@shared/types.js'
+import type { DownloadJob, FitVerdict, HfFile, HfModel, RemoteFit } from '@shared/types.js'
 import { useServerStore } from './serverStore.js'
 
 interface DownloadState {
@@ -10,12 +10,19 @@ interface DownloadState {
   expanded: string | null
   files: HfFile[]
   filesLoading: boolean
+  /** Fit estimate per file in the expanded repo, keyed by file path. */
+  fits: Record<string, RemoteFit>
+  fitsLoading: boolean
+  sortBy: 'size' | 'fit'
+  onlyFitting: boolean
   jobs: DownloadJob[]
   error: string | null
 
   setQuery: (q: string) => void
   search: () => Promise<void>
   expand: (repo: string) => Promise<void>
+  setSortBy: (by: 'size' | 'fit') => void
+  setOnlyFitting: (only: boolean) => void
   start: (repo: string, file: HfFile) => Promise<void>
   cancel: (id: string) => Promise<void>
   refreshJobs: () => Promise<void>
@@ -29,6 +36,10 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
   expanded: null,
   files: [],
   filesLoading: false,
+  fits: {},
+  fitsLoading: false,
+  sortBy: 'fit',
+  onlyFitting: false,
   jobs: [],
   error: null,
 
@@ -52,16 +63,31 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
       set({ expanded: null, files: [] })
       return
     }
-    set({ expanded: repo, files: [], filesLoading: true, error: null })
+    set({ expanded: repo, files: [], fits: {}, filesLoading: true, error: null })
     try {
       const files = await window.llama.downloads.files(repo)
       // Guard against a slower earlier request landing after a newer one.
-      if (get().expanded === repo) set({ files })
+      if (get().expanded !== repo) return
+      set({ files, filesLoading: false, fitsLoading: true })
+
+      // Fit estimates need a ranged fetch of the model header, so they arrive
+      // after the file list rather than blocking it.
+      const fits = await window.llama.downloads.fit(repo)
+      if (get().expanded !== repo) return
+      set({ fits: Object.fromEntries(fits.map((f) => [f.file, f])) })
     } catch (err) {
       set({ error: (err as Error).message })
     } finally {
-      set({ filesLoading: false })
+      set({ filesLoading: false, fitsLoading: false })
     }
+  },
+
+  setSortBy(sortBy) {
+    set({ sortBy })
+  },
+
+  setOnlyFitting(onlyFitting) {
+    set({ onlyFitting })
   },
 
   async start(repo, file) {
@@ -94,6 +120,20 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
     set({ error: null })
   }
 }))
+
+/** Best first: a full offload beats a partial one, which beats CPU-only. */
+export const FIT_RANK: Record<FitVerdict, number> = { full: 0, partial: 1, cpu: 2, unknown: 3 }
+
+/**
+ * The best choice is the *largest* quantisation that still fits entirely in
+ * VRAM — more bits means better quality, and spilling to CPU costs far more
+ * speed than the extra quality is worth.
+ */
+export function recommendedFile(files: HfFile[], fits: Record<string, RemoteFit>): string | null {
+  const fitting = files.filter((f) => fits[f.path]?.verdict === 'full')
+  if (fitting.length === 0) return null
+  return fitting.reduce((best, f) => (f.size > best.size ? f : best)).path
+}
 
 /** Push job updates from main into the store. */
 export function subscribeToDownloads(): () => void {
