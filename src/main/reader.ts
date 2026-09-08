@@ -64,13 +64,25 @@ export class Reader extends EventEmitter<{ state: [ReaderState] }> {
 
   close(): void {
     if (!this.view) return
-    this.window.contentView.removeChildView(this.view)
+    if (!this.window.isDestroyed()) this.window.contentView.removeChildView(this.view)
     // The page keeps running until its contents are destroyed: a video would go
     // on playing behind a closed pane.
     this.view.webContents.close()
     this.view = null
     this.lastError = ''
     this.announce()
+  }
+
+  /**
+   * The window is going. Let go of the page without touching the window, whose
+   * contentView and webContents are already destroyed by the time this runs.
+   */
+  dispose(): void {
+    const wc = this.view?.webContents
+    this.view = null
+    this.bounds = null
+    if (wc && !wc.isDestroyed()) wc.close()
+    this.removeAllListeners()
   }
 
   private create(): WebContentsView {
@@ -139,11 +151,18 @@ const readers = new Map<number, Reader>()
 
 export function attachReader(win: BrowserWindow): Reader {
   const reader = new Reader(win)
-  readers.set(win.webContents.id, reader)
+  // Read once and keep it: after the window is destroyed, even reaching for its
+  // webContents throws, which is what crashed the main process on quit.
+  const id = win.webContents.id
+  readers.set(id, reader)
   reader.on('state', (state) => {
-    if (!win.isDestroyed()) win.webContents.send(IPC.readerChanged, state)
+    if (win.isDestroyed() || win.webContents.isDestroyed()) return
+    win.webContents.send(IPC.readerChanged, state)
   })
-  win.on('closed', () => readers.delete(win.webContents.id))
+  win.on('closed', () => {
+    readers.delete(id)
+    reader.dispose()
+  })
   return reader
 }
 

@@ -46,8 +46,12 @@ async function run(suite) {
     format: 'esm',
     target: 'node22',
     outfile: out,
-    external: ['electron'],
-    alias: { '@shared': join(repo, 'src/shared') },
+    // Main-process modules can be exercised here as long as what they use of
+    // Electron is stubbed; anything needing a real window is a UI drive instead.
+    alias: {
+      '@shared': join(repo, 'src/shared'),
+      electron: join(here, 'stubs/electron.ts')
+    },
     logLevel: 'silent'
   })
 
