@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell, session } from 'electron'
+import { app, BrowserWindow, session } from 'electron'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { ServerSupervisor } from './supervisor.js'
@@ -14,6 +14,8 @@ import { registerIpc, wireEvents } from './ipc.js'
 import { buildAppMenu } from './menu.js'
 import { migrateLegacyUserData } from './migrate.js'
 import { attachContextMenu, registerContextMenuCommands } from './contextMenu.js'
+import { attachReader } from './reader.js'
+import { isWebUrl } from '@shared/url.js'
 import type { BinaryInfo } from '@shared/types.js'
 
 const dirname = fileURLToPath(new URL('.', import.meta.url))
@@ -42,11 +44,22 @@ function createWindow(): BrowserWindow {
 
   win.once('ready-to-show', () => win.show())
   attachContextMenu(win)
+  const reader = attachReader(win)
 
-  // External links open in the real browser, never inside the app window.
+  // External links open in the reading pane, never inside the app window.
   win.webContents.setWindowOpenHandler(({ url }) => {
-    void shell.openExternal(url)
+    reader.open(url)
     return { action: 'deny' }
+  })
+
+  // The one that matters: an ordinary <a href> is a same-window navigation, and
+  // the preload bridge survives it — a remote page would arrive holding every
+  // IPC channel this app has, including the one that runs a command to start an
+  // MCP server. The app window renders its own files and nothing else, ever.
+  win.webContents.on('will-navigate', (event, url) => {
+    if (isAppUrl(url)) return
+    event.preventDefault()
+    if (isWebUrl(url)) reader.open(url)
   })
 
   if (process.env['ELECTRON_RENDERER_URL']) {
@@ -55,6 +68,16 @@ function createWindow(): BrowserWindow {
     void win.loadFile(join(dirname, '../renderer/index.html'))
   }
   return win
+}
+
+/**
+ * Whether a URL is the app itself: its own files in a build, or the dev server.
+ * Anything else — including a reload of a page already navigated to — is not.
+ */
+export function isAppUrl(url: string): boolean {
+  const dev = process.env['ELECTRON_RENDERER_URL']
+  if (dev) return url.startsWith(dev)
+  return url.startsWith('file://')
 }
 
 /**

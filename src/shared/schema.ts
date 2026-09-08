@@ -69,6 +69,14 @@ export const mcpServersSchema = z.array(
   })
 ).max(20)
 
+/** Where the reading pane sits in the window, in device-independent pixels. */
+export const readerBoundsSchema = z.object({
+  x: z.number().int(),
+  y: z.number().int(),
+  width: z.number().int().min(0),
+  height: z.number().int().min(0)
+})
+
 export const toolRunSchema = z.object({
   name: z.string().min(1).max(64),
   args: z.record(z.string(), z.unknown()).default({})

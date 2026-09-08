@@ -73,6 +73,8 @@ export const conversationSchema = z.object({
   createdAt: z.number(),
   updatedAt: z.number(),
   systemPrompt: z.string().default(''),
+  /** Tool names the model may call in this conversation. */
+  tools: z.array(z.string().max(64)).max(64).default([]),
   messages: z.array(messageSchema).default([]),
   settings: chatSettingsSchema.default(DEFAULT_CHAT_SETTINGS)
 })
@@ -152,7 +154,8 @@ export class ConversationStore {
     return parsed
   }
 
-  async create(systemPrompt = ''): Promise<Conversation> {
+  /** `tools` is carried over from the chat you were in, so a new one is usable straight away. */
+  async create(systemPrompt = '', tools: string[] = []): Promise<Conversation> {
     const now = Date.now()
     return this.save({
       id: randomUUID(),
@@ -160,6 +163,7 @@ export class ConversationStore {
       createdAt: now,
       updatedAt: now,
       systemPrompt,
+      tools,
       messages: [],
       settings: DEFAULT_CHAT_SETTINGS
     })

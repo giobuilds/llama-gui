@@ -1,4 +1,4 @@
-import { ipcMain, dialog, BrowserWindow } from 'electron'
+import { ipcMain, dialog, BrowserWindow , type WebContents } from 'electron'
 import { ZodError } from 'zod'
 import type {
   BenchResult,
@@ -20,6 +20,7 @@ import type {
   ModelEntryView,
   McpServerState,
   McpSnapshot,
+  ReaderState,
   ToolDefinition,
   ToolResult,
   ServerStatus,
@@ -34,6 +35,7 @@ import { planVram } from './planner.js'
 import { fitParams } from './fit.js'
 import { runHealthCheck } from './health.js'
 import { conversationSchema, type ConversationStore } from './conversations.js'
+import { openExternally, readerFor } from './reader.js'
 import type { ProfileStore } from './profiles.js'
 import {
   searchModels,
@@ -55,7 +57,8 @@ import {
   planRequestSchema,
   healthCheckRequestSchema,
   toolRunSchema,
-  mcpServersSchema
+  mcpServersSchema,
+  readerBoundsSchema
 } from '@shared/schema.js'
 import type { SettingsStore } from './settings.js'
 
@@ -64,6 +67,17 @@ function handle<T>(channel: string, fn: (...args: unknown[]) => Promise<T> | T):
   ipcMain.handle(channel, async (_event, ...args): Promise<IpcResponse<T>> => {
     try {
       return { ok: true, value: await fn(...args) }
+    } catch (err) {
+      return { ok: false, error: describeError(err) }
+    }
+  })
+}
+
+/** Same, for handlers that act on the window that asked rather than on the app. */
+function handleFrom<T>(channel: string, fn: (sender: WebContents, ...args: unknown[]) => T): void {
+  ipcMain.handle(channel, async (event, ...args): Promise<IpcResponse<T>> => {
+    try {
+      return { ok: true, value: await fn(event.sender, ...args) }
     } catch (err) {
       return { ok: false, error: describeError(err) }
     }
@@ -431,6 +445,31 @@ export function registerIpc(
   // the only thing that differs for the user is where a tool came from.
   handle<ToolDefinition[]>(IPC.toolsList, () => [...BUILT_IN_TOOLS, ...mcp.tools()])
 
+  // Pages open in a pane with no preload rather than in the app window, which
+  // would hand a remote page the whole bridge below.
+  handleFrom<ReaderState | null>(IPC.readerOpen, (sender, url) => {
+    const reader = readerFor(sender)
+    reader?.open(String(url ?? ''))
+    return reader?.state ?? null
+  })
+  handleFrom<ReaderState | null>(IPC.readerClose, (sender) => {
+    const reader = readerFor(sender)
+    reader?.close()
+    return reader?.state ?? null
+  })
+  handleFrom<null>(IPC.readerBack, (sender) => {
+    readerFor(sender)?.goBack()
+    return null
+  })
+  handleFrom<null>(IPC.readerBounds, (sender, raw) => {
+    readerFor(sender)?.setBounds(raw === null ? null : readerBoundsSchema.parse(raw))
+    return null
+  })
+  handle<null>(IPC.readerExternal, (url) => {
+    openExternally(String(url ?? ''))
+    return null
+  })
+
   handle<McpSnapshot>(IPC.mcpList, () => snapshot())
   handle<McpSnapshot>(IPC.mcpSave, async (raw) => {
     await mcp.apply(mcpServersSchema.parse(raw))
@@ -457,8 +496,11 @@ export function registerIpc(
 
   handle<ConversationSummaryView[]>(IPC.chatList, () => conversations.list())
   handle<ConversationView | null>(IPC.chatGet, (id) => conversations.get(String(id ?? '')))
-  handle<ConversationView>(IPC.chatCreate, (systemPrompt) =>
-    conversations.create(typeof systemPrompt === 'string' ? systemPrompt : '')
+  handle<ConversationView>(IPC.chatCreate, (systemPrompt, tools) =>
+    conversations.create(
+      typeof systemPrompt === 'string' ? systemPrompt : '',
+      Array.isArray(tools) ? tools.filter((t): t is string => typeof t === 'string') : []
+    )
   )
   handle<ConversationView>(IPC.chatSave, (raw) =>
     // Conversation content is model output written back through the renderer,

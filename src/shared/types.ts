@@ -315,6 +315,16 @@ export interface McpServerState {
   log: string[]
 }
 
+/** The reading pane, which lives in the main process because it is not part of the page. */
+export interface ReaderState {
+  open: boolean
+  url: string
+  title: string
+  loading: boolean
+  canGoBack: boolean
+  error: string
+}
+
 /** Configuration and live state together, so the editor never shows one without the other. */
 export interface McpSnapshot {
   configs: McpServerConfig[]
@@ -547,6 +557,8 @@ export interface ConversationView {
   systemPrompt: string
   messages: ChatMessageView[]
   settings: ChatSettingsView
+  /** Tool names enabled for this conversation. */
+  tools: string[]
 }
 
 export interface ConversationSummaryView {

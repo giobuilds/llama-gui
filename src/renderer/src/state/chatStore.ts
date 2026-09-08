@@ -56,12 +56,11 @@ interface ChatState {
   streams: Record<string, ActiveStream>
   /** Tools the model may call, and which of them are switched on. */
   availableTools: ToolDefinition[]
-  enabledTools: string[]
   error: string | null
 
   load: () => Promise<void>
   loadTools: () => Promise<void>
-  toggleTool: (name: string) => void
+  toggleTool: (name: string) => Promise<void>
   open: (id: string) => Promise<void>
   create: () => Promise<void>
   remove: (id: string) => Promise<void>
@@ -93,7 +92,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
   activeId: null,
   streams: {},
   availableTools: [],
-  enabledTools: [],
   error: null,
 
   async loadTools() {
@@ -104,9 +102,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
-  toggleTool(name) {
-    const on = get().enabledTools
-    set({ enabledTools: on.includes(name) ? on.filter((t) => t !== name) : [...on, name] })
+  async toggleTool(name) {
+    const conversation = activeConversation(get())
+    if (!conversation) return
+    const on = conversation.tools ?? []
+    const next = {
+      ...conversation,
+      tools: on.includes(name) ? on.filter((t) => t !== name) : [...on, name]
+    }
+    put(set, get, next)
+    await persist(next, set, get)
   },
 
   async load() {
@@ -129,7 +134,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   async create() {
-    const created = await window.llama.chat.create()
+    const created = await window.llama.chat.create('', activeConversation(get())?.tools ?? [])
     set({
       byId: { ...get().byId, [created.id]: created },
       activeId: created.id,
@@ -419,7 +424,8 @@ async function runCompletion(conversationId: string, set: Setter, get: Getter): 
 
   // Only the tools the user switched on are declared, because every definition
   // is sent with every request whether or not it is used.
-  const enabled = get().availableTools.filter((t) => get().enabledTools.includes(t.name))
+  const chosen = activeConversation(get())?.tools ?? []
+  const enabled = get().availableTools.filter((t) => chosen.includes(t.name))
   const toolSpec = enabled.map((t) => ({
     type: 'function',
     function: { name: t.name, description: t.description, parameters: t.parameters }

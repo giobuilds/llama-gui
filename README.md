@@ -49,6 +49,12 @@ message, so they are switched on individually and the running cost is shown.
 The default search engine rate-limits after a few queries in a row; point
 *File → Tools and MCP Servers* at a SearXNG instance you run to avoid that.
 
+**Reading pane** — links from a search result open beside the chat rather than
+in your browser or, as they used to, in the app window itself. The page runs in
+its own web contents with no bridge to Lowerbeam, so a script on it cannot reach
+the app: no IPC, no filesystem, no process spawning. Close it, or send it to
+your real browser, from its header.
+
 **MCP servers** — any program that speaks the Model Context Protocol over stdin
 and stdout can supply more tools. Give Lowerbeam its command and it starts it,
 lists what it offers, and adds those tools to the same list chat picks from —
