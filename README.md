@@ -49,6 +49,14 @@ message, so they are switched on individually and the running cost is shown.
 The default search engine rate-limits after a few queries in a row; point
 *File → Tools and MCP Servers* at a SearXNG instance you run to avoid that.
 
+**Context** — a chat gets the server's context divided by the number of
+concurrent chats, and when it runs out llama.cpp stops mid-sentence with no
+explanation. Lowerbeam counts what each request used from the server's own
+figures, shows it next to the chat, says so plainly when a reply was cut off,
+and — unless you turn it off — summarises the oldest turns to make room before
+it happens. Nothing is deleted: the transcript keeps everything, and only what
+is sent to the model changes.
+
 **Reading pane** — links from a search result open beside the chat rather than
 in your browser or, as they used to, in the app window itself. The page runs in
 its own web contents with no bridge to Lowerbeam, so a script on it cannot reach

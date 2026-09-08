@@ -4,6 +4,8 @@ import { useServerStore } from '../state/serverStore.js'
 import { Message } from '../components/Message.js'
 import { ChatSidebar } from '../components/ChatSidebar.js'
 import { ChatSettings } from '../components/ChatSettings.js'
+import { ContextMeter } from '../components/ContextMeter.js'
+import { CompactionMark } from '../components/CompactionMark.js'
 import { Attachments } from '../components/Attachments.js'
 import { useAutoSize } from '../components/useAutoSize.js'
 import { SlotMeter } from '../components/SlotMeter.js'
@@ -117,6 +119,7 @@ export function Chat({ onConfigureTools }: { onConfigureTools: () => void }): Re
           <h2 className="min-w-0 flex-1 truncate text-sm font-medium">
             {active?.title ?? 'New chat'}
           </h2>
+          <ContextMeter />
           <SlotMeter />
           <button
             type="button"
@@ -154,15 +157,19 @@ export function Chat({ onConfigureTools }: { onConfigureTools: () => void }): Re
             </div>
           ) : (
             messages.map((m) => (
-              <Message
-                key={m.id}
+              <div key={m.id}>
+                {m.id === active?.compaction?.throughMessageId && (
+                  <CompactionMark compaction={active.compaction} />
+                )}
+                <Message
                 message={m}
                 streaming={m.id === streamingMessageId}
                 canRegenerate={m.id === lastAssistant?.id && !streaming}
                 onEdit={(content) => void editUserMessage(m.id, content)}
                 onDelete={() => void deleteMessage(m.id)}
                 onRegenerate={() => void regenerate()}
-              />
+                />
+              </div>
             ))
           )}
         </div>

@@ -64,6 +64,7 @@ export class ServerSupervisor extends EventEmitter<SupervisorEvents> {
   private adopted = false
   private modalities: ServerStatus['modalities'] = null
   private supportsTools = false
+  private contextPerSlot: number | null = null
 
   private healthTimer: NodeJS.Timeout | null = null
   private healthFailures = 0
@@ -100,7 +101,8 @@ export class ServerSupervisor extends EventEmitter<SupervisorEvents> {
       readyAt: this.readyAt,
       adopted: this.adopted,
       modalities: this.modalities,
-      supportsTools: this.supportsTools
+      supportsTools: this.supportsTools,
+      contextPerSlot: this.contextPerSlot
     }
   }
 
@@ -164,6 +166,7 @@ export class ServerSupervisor extends EventEmitter<SupervisorEvents> {
       this.pid = null
       this.modalities = null
       this.supportsTools = false
+      this.contextPerSlot = null
       void rm(this.handoffPath, { force: true })
       if (wasIntentional) {
         this.setPhase('stopped', { error: null, stage: null })
@@ -289,7 +292,12 @@ export class ServerSupervisor extends EventEmitter<SupervisorEvents> {
       const props = (await res.json()) as {
         modalities?: { vision?: boolean; audio?: boolean; video?: boolean }
         chat_template_caps?: { supports_tools?: boolean; supports_tool_calls?: boolean }
+        default_generation_settings?: { n_ctx?: number }
       }
+      // What one conversation actually gets. `--ctx-size` is the total across
+      // slots, so with --parallel 4 a chat has a quarter of it — the number
+      // that decides when a reply stops mid-sentence.
+      this.contextPerSlot = props.default_generation_settings?.n_ctx ?? null
       this.supportsTools = Boolean(
         props.chat_template_caps?.supports_tools && props.chat_template_caps?.supports_tool_calls
       )

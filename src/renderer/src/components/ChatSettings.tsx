@@ -9,6 +9,43 @@ import { useServerStore } from '../state/serverStore.js'
  * roughly 50 tokens each on this machine. The running cost is shown so the
  * trade is visible at the point of making it.
  */
+/**
+ * A conversation outlives its context window; this decides what happens then.
+ *
+ * Off, a reply eventually stops mid-sentence and the next message is refused
+ * outright. On, the oldest turns are traded for a summary of them — which
+ * costs a little accuracy about the distant past to keep the chat going.
+ */
+function CompactionToggle(): React.JSX.Element | null {
+  const conversation = useChatStore(activeConversation)
+  const setAutoCompact = useChatStore((s) => s.setAutoCompact)
+  const limit = useServerStore((s) => s.status?.contextPerSlot ?? null)
+  if (!conversation) return null
+
+  return (
+    <section className="rounded border border-edge bg-ink/50 p-2.5">
+      <h3 className="text-[11px] font-medium text-muted">Context</h3>
+      <label className="mt-1.5 flex gap-2">
+        <input
+          type="checkbox"
+          className="mt-0.5"
+          checked={conversation.autoCompact}
+          onChange={(e) => void setAutoCompact(e.target.checked)}
+        />
+        <span>
+          <span className="text-xs text-slate-200">Summarise older messages when the window fills</span>
+          <span className="block text-[11px] leading-snug text-muted">
+            {limit
+              ? `This chat has ${limit.toLocaleString()} tokens to work with. `
+              : 'Start a model to see how much room this chat has. '}
+            Without this, a reply stops mid-sentence once that runs out.
+          </span>
+        </span>
+      </label>
+    </section>
+  )
+}
+
 function ToolToggles({ onConfigure }: { onConfigure: () => void }): React.JSX.Element | null {
   const tools = useChatStore((s) => s.availableTools)
   const enabled = useChatStore((s) => activeConversation(s)?.tools ?? [])
@@ -85,6 +122,7 @@ export function ChatSettings({
     <div className="border-b border-edge bg-panel/60 p-3">
       <div className="mx-auto max-w-3xl space-y-3">
         <ToolToggles onConfigure={onConfigureTools} />
+        <CompactionToggle />
 
         <label className="block">
           <span className="text-[11px] font-medium text-muted">System prompt</span>
