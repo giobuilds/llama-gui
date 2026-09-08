@@ -118,6 +118,10 @@ export function LaunchPanel(): React.JSX.Element {
                   {fit.contextSize ? ` (${(fit.contextSize / 1024).toFixed(0)}k context` : ''}
                   {fit.gpuLayers === -1 ? ', all layers on GPU)' : fit.gpuLayers !== null ? `, ${fit.gpuLayers} layers)` : ')'}
                 </>
+              ) : !draft.modelPath ? (
+                // Before a model is chosen there is nothing to suggest, which is
+                // different from having asked and received no answer.
+                'Choose a model to see what llama.cpp would pick.'
               ) : (
                 'No suggestion available for this model.'
               )}

@@ -8,13 +8,36 @@ const settingsSchema = z.object({
   /** Explicit llama.cpp binary chosen by the user, overriding auto-discovery. */
   binaryPath: z.string().optional(),
   /** Extra directories to scan for GGUF files, beyond the defaults. */
-  modelDirs: z.array(z.string()).default([])
+  modelDirs: z.array(z.string()).default([]),
+  /**
+   * Recently finished downloads.
+   *
+   * Kept on disk because the list is a record of what you fetched, not of what
+   * this session happened to do: after a restart an empty panel reads as
+   * "nothing was ever downloaded", which is untrue and unhelpful.
+   */
+  downloadHistory: z
+    .array(
+      z.object({
+        id: z.string(),
+        repo: z.string(),
+        file: z.string(),
+        expectedBytes: z.number(),
+        receivedBytes: z.number(),
+        state: z.enum(['queued', 'running', 'done', 'failed', 'cancelled']),
+        error: z.string().nullable(),
+        modelPath: z.string().nullable(),
+        startedAt: z.number(),
+        finishedAt: z.number().nullable()
+      })
+    )
+    .default([])
 })
 
 export type Settings = z.infer<typeof settingsSchema>
 export type { Calibration }
 
-const DEFAULTS: Settings = { modelDirs: [], calibration: EMPTY_CALIBRATION }
+const DEFAULTS: Settings = { modelDirs: [], calibration: EMPTY_CALIBRATION, downloadHistory: [] }
 
 /** Small JSON-backed settings file. Corrupt or missing files fall back to defaults. */
 export class SettingsStore {

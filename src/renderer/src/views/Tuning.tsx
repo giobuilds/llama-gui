@@ -177,6 +177,8 @@ export function Tuning(): React.JSX.Element {
   )
 }
 
+const samples = (n: number): string => `${n} sample${n === 1 ? '' : 's'}`
+
 const gbs = (b: number | null): string => (b === null ? 'not measured' : `${(b / 1e9).toFixed(0)} GB/s`)
 
 /**
@@ -191,9 +193,9 @@ function MachinePanel({ machine }: { machine: MachineProfileView }): React.JSX.E
       <h2 className="mb-1.5 text-xs font-medium text-muted">This machine</h2>
       <dl className="space-y-1 text-[11px]">
         <Row label="GPU read speed" value={gbs(machine.gpuBytesPerSecond)}
-          hint={`${machine.gpuSamples} sample${machine.gpuSamples === 1 ? '' : 's'}`} />
+          hint={samples(machine.gpuSamples)} />
         <Row label="CPU read speed" value={gbs(machine.cpuBytesPerSecond)}
-          hint={machine.cpuAssumed ? 'assumed — run the calibration' : `${machine.cpuSamples} samples`}
+          hint={machine.cpuAssumed ? 'assumed — run the calibration' : samples(machine.cpuSamples)}
           warn={machine.cpuAssumed} />
         <Row label="Small-model ceiling"
           value={machine.ceilingTokensPerSecond ? `${Math.round(machine.ceilingTokensPerSecond)} tok/s` : 'not measured'}
