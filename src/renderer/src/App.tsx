@@ -11,6 +11,7 @@ import { subscribeToBench } from './state/benchStore.js'
 import { FlagReference } from './components/FlagReference.js'
 import { ContextMenu } from './components/ContextMenu.js'
 import { ToolSettings } from './components/ToolSettings.js'
+import { About } from './components/About.js'
 import { ReaderPanel } from './components/ReaderPanel.js'
 import { subscribeToReader, useReaderStore } from './state/readerStore.js'
 import { isWebUrl } from '@shared/url.js'
@@ -24,6 +25,7 @@ export default function App(): React.JSX.Element {
   const [tab, setTab] = useState<Tab>('chat')
   const [showFlags, setShowFlags] = useState(false)
   const [showTools, setShowTools] = useState(false)
+  const [showAbout, setShowAbout] = useState(false)
 
   const activeDownloads = useDownloadStore(
     (s) => s.jobs.filter((j) => j.state === 'running' || j.state === 'queued').length
@@ -46,6 +48,7 @@ export default function App(): React.JSX.Element {
         case 'tab:tuning': setTab('tuning'); break
         case 'help:flags': setShowFlags(true); break
         case 'tools:configure': setShowTools(true); break
+        case 'help:about': setShowAbout(true); break
         case 'chat:new':
           setTab('chat')
           void useChatStore.getState().create()
@@ -80,24 +83,34 @@ export default function App(): React.JSX.Element {
       if (!isWebUrl(href)) return
       event.preventDefault()
       // Holding a modifier means "not here", the same as it does in a browser.
-      if (event.ctrlKey || event.metaKey || event.button === 1) {
+      // Some links say so themselves: a repo or an issue tracker is worth
+      // opening where you are signed in, not in a pane with an empty session.
+      if (
+        link?.getAttribute('data-external') === 'true' ||
+        event.ctrlKey ||
+        event.metaKey ||
+        event.button === 1
+      ) {
         void window.llama.reader.openExternal(href)
       } else {
         void useReaderStore.getState().openUrl(href)
       }
     }
-    document.addEventListener('click', onClick)
-    document.addEventListener('auxclick', onClick)
+    // Capture, not bubble: a modal stops propagation on its own clicks before
+    // they reach the document, so a link inside one would otherwise fall
+    // through to the main process's refusal instead of being handled here.
+    document.addEventListener('click', onClick, true)
+    document.addEventListener('auxclick', onClick, true)
     return () => {
-      document.removeEventListener('click', onClick)
-      document.removeEventListener('auxclick', onClick)
+      document.removeEventListener('click', onClick, true)
+      document.removeEventListener('auxclick', onClick, true)
     }
   }, [])
 
   // The pane draws over the window, so it has to stand down for a modal.
   useEffect(() => {
-    useReaderStore.getState().setHidden(showFlags || showTools)
-  }, [showFlags, showTools])
+    useReaderStore.getState().setHidden(showFlags || showTools || showAbout)
+  }, [showFlags, showTools, showAbout])
 
   // A reply is persisted when it finishes, so closing mid-generation would drop
   // whatever had streamed. Flush what is in flight before the window goes.
@@ -181,6 +194,7 @@ export default function App(): React.JSX.Element {
 
       {showFlags && <FlagReference onClose={() => setShowFlags(false)} />}
       {showTools && <ToolSettings onClose={() => setShowTools(false)} />}
+      {showAbout && <About onClose={() => setShowAbout(false)} />}
       <ContextMenu />
     </div>
   )
