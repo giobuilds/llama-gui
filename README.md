@@ -257,12 +257,15 @@ multi-slot KV figure matches llama.cpp exactly (192.00 MiB at `-c 16384
 
 ## Packaging
 
-`npm run dist` produces an AppImage in `dist/`, which runs standalone with no
-development toolchain present.
+`npm run dist` produces both an AppImage and an RPM in `dist/`. The AppImage
+runs standalone; the RPM installs to `/opt/llama-gui` with a desktop entry and
+icon, and its dependencies (gtk3, libnotify, libXtst and friends) are ordinary
+desktop packages.
 
-The RPM target needs `libxcrypt-compat`: electron-builder shells out to `fpm`,
-whose bundled ruby links against `libcrypt.so.1`, and Fedora ships libxcrypt
-instead. Without it the AppImage still builds and only the RPM step fails.
+On Fedora the RPM target additionally needs `libxcrypt-compat`, because
+electron-builder shells out to `fpm`, whose bundled ruby links against
+`libcrypt.so.1` while Fedora ships libxcrypt. Without it the AppImage still
+builds and only the RPM step fails.
 
 ```bash
 sudo dnf install libxcrypt-compat
