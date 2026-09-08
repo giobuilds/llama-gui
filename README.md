@@ -38,6 +38,15 @@ interrupt a reply.
 roughly how fast they will run* before downloading, then pull one with live
 progress. Vision models bring their projector automatically.
 
+**Web access** — the model can search and read pages when you switch the tools
+on. Everything is built around context rather than bandwidth: one page of raw
+HTML is about 14,000 tokens on this hardware, the same page as text about 1,300,
+and its search extract about 380 — so the model is shown text, and only when an
+extract was not enough. Older results are replaced by a one-line summary once
+they have been used, which keeps a five-search conversation at about a fifth of
+what it would otherwise cost. Each enabled tool adds roughly 50 tokens to every
+message, so they are switched on individually and the running cost is shown.
+
 **Tuning** — benchmarks launch settings with `llama bench` and applies the
 fastest. Sampler settings aren't here on purpose: they don't change throughput.
 

@@ -63,6 +63,7 @@ export class ServerSupervisor extends EventEmitter<SupervisorEvents> {
   private startedAt: number | null = null
   private adopted = false
   private modalities: ServerStatus['modalities'] = null
+  private supportsTools = false
 
   private healthTimer: NodeJS.Timeout | null = null
   private healthFailures = 0
@@ -98,7 +99,8 @@ export class ServerSupervisor extends EventEmitter<SupervisorEvents> {
       exitCode: this.exitCode,
       readyAt: this.readyAt,
       adopted: this.adopted,
-      modalities: this.modalities
+      modalities: this.modalities,
+      supportsTools: this.supportsTools
     }
   }
 
@@ -161,6 +163,7 @@ export class ServerSupervisor extends EventEmitter<SupervisorEvents> {
       this.child = null
       this.pid = null
       this.modalities = null
+      this.supportsTools = false
       void rm(this.handoffPath, { force: true })
       if (wasIntentional) {
         this.setPhase('stopped', { error: null, stage: null })
@@ -285,7 +288,11 @@ export class ServerSupervisor extends EventEmitter<SupervisorEvents> {
       if (!res.ok) return
       const props = (await res.json()) as {
         modalities?: { vision?: boolean; audio?: boolean; video?: boolean }
+        chat_template_caps?: { supports_tools?: boolean; supports_tool_calls?: boolean }
       }
+      this.supportsTools = Boolean(
+        props.chat_template_caps?.supports_tools && props.chat_template_caps?.supports_tool_calls
+      )
       this.modalities = {
         vision: Boolean(props.modalities?.vision),
         audio: Boolean(props.modalities?.audio),

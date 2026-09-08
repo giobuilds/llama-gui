@@ -21,6 +21,8 @@ import type {
   LaunchConfig,
   LogLine,
   ModelEntryView,
+  ToolDefinition,
+  ToolResult,
   ServerStatus,
   VramPlanView
 } from '@shared/types.js'
@@ -117,6 +119,11 @@ const api = {
     get: (modelPath: string) => invoke<LaunchProfileView | null>(IPC.profileGet, modelPath),
     list: () => invoke<LaunchProfileView[]>(IPC.profileList),
     forget: (modelPath: string) => invoke<null>(IPC.profileForget, modelPath)
+  },
+  tools: {
+    list: () => invoke<ToolDefinition[]>(IPC.toolsList),
+    run: (name: string, args: Record<string, unknown>) =>
+      invoke<ToolResult>(IPC.toolsRun, { name, args })
   },
   chat: {
     list: () => invoke<ConversationSummaryView[]>(IPC.chatList),

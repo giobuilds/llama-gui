@@ -1,4 +1,62 @@
 import { activeConversation, useChatStore } from '../state/chatStore.js'
+import { useServerStore } from '../state/serverStore.js'
+
+/**
+ * Which tools the model may call.
+ *
+ * Switched individually rather than all at once, because every enabled
+ * definition is sent with every message whether it is used or not — measured at
+ * roughly 50 tokens each on this machine. The running cost is shown so the
+ * trade is visible at the point of making it.
+ */
+function ToolToggles(): React.JSX.Element | null {
+  const tools = useChatStore((s) => s.availableTools)
+  const enabled = useChatStore((s) => s.enabledTools)
+  const toggle = useChatStore((s) => s.toggleTool)
+  const canCall = useServerStore((s) => s.status?.supportsTools ?? false)
+  if (tools.length === 0) return null
+
+  // Roughly four characters to a token, over the JSON actually sent.
+  const cost = tools
+    .filter((t) => enabled.includes(t.name))
+    .reduce((total, t) => total + Math.ceil(JSON.stringify(t).length / 4), 0)
+
+  return (
+    <section className="rounded border border-edge bg-ink/50 p-2.5">
+      <div className="flex items-baseline gap-2">
+        <h3 className="text-[11px] font-medium text-muted">Tools</h3>
+        {cost > 0 && (
+          <span className="text-[11px] text-muted" title="Sent with every message in this conversation">
+            ~{cost} tokens per message
+          </span>
+        )}
+      </div>
+
+      {!canCall && (
+        <p className="mt-1 text-[11px] text-amber-300">
+          The running model does not support tool calls, so these will be ignored.
+        </p>
+      )}
+
+      <div className="mt-1.5 space-y-1">
+        {tools.map((t) => (
+          <label key={t.name} className="flex gap-2">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={enabled.includes(t.name)}
+              onChange={() => toggle(t.name)}
+            />
+            <span>
+              <span className="text-xs text-slate-200">{t.label}</span>
+              <span className="block text-[11px] leading-snug text-muted">{t.description}</span>
+            </span>
+          </label>
+        ))}
+      </div>
+    </section>
+  )
+}
 
 /**
  * Per-conversation sampler settings and system prompt. They live with the
@@ -15,6 +73,8 @@ export function ChatSettings(): React.JSX.Element | null {
   return (
     <div className="border-b border-edge bg-panel/60 p-3">
       <div className="mx-auto max-w-3xl space-y-3">
+        <ToolToggles />
+
         <label className="block">
           <span className="text-[11px] font-medium text-muted">System prompt</span>
           <textarea

@@ -46,6 +46,17 @@ export const benchRequestSchema = z.object({
   ubatch: z.array(z.number().int().min(1).max(1 << 16)).max(8)
 })
 
+/**
+ * A tool invocation from the renderer.
+ *
+ * The arguments come from model output, so they are shape-checked before
+ * anything acts on them rather than trusted because a model produced them.
+ */
+export const toolRunSchema = z.object({
+  name: z.string().min(1).max(64),
+  args: z.record(z.string(), z.unknown()).default({})
+})
+
 /** A download request from the renderer. */
 export const downloadRequestSchema = z.object({
   // Repo ids are "org/name"; anything else would be interpolated into a

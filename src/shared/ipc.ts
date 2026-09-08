@@ -37,6 +37,8 @@ export const IPC = {
   profileGet: 'profiles:get',
   profileList: 'profiles:list',
   profileForget: 'profiles:forget',
+  toolsList: 'tools:list',
+  toolsRun: 'tools:run',
   chatList: 'chat:list',
   chatGet: 'chat:get',
   chatSave: 'chat:save',
