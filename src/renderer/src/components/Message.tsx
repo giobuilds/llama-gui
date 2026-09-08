@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
+import { useAutoSize } from './useAutoSize.js'
 import type { ChatMessageView } from '@shared/types.js'
 import { renderMarkdown } from '../api/markdown.js'
 
@@ -25,6 +26,10 @@ export function Message({
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(message.content)
   const [showReasoning, setShowReasoning] = useState(false)
+  const editRef = useRef<HTMLTextAreaElement>(null)
+  // An edit box may hold a long message, so it is allowed more room than the
+  // composer before it starts scrolling.
+  useAutoSize(editRef, draft, 420)
   const isUser = message.role === 'user'
 
   const html = useMemo(
@@ -61,10 +66,11 @@ export function Message({
     return (
       <div className="group px-6 py-4">
         <textarea
+          ref={editRef}
           autoFocus
+          rows={1}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
-          rows={Math.min(16, draft.split('\n').length + 2)}
           className="w-full resize-y rounded-md border border-accent bg-ink p-3 text-sm outline-none"
         />
         <div className="mt-2 flex gap-2">

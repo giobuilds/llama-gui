@@ -5,6 +5,7 @@ import { Message } from '../components/Message.js'
 import { ChatSidebar } from '../components/ChatSidebar.js'
 import { ChatSettings } from '../components/ChatSettings.js'
 import { Attachments } from '../components/Attachments.js'
+import { useAutoSize } from '../components/useAutoSize.js'
 import { SlotMeter } from '../components/SlotMeter.js'
 
 export function Chat(): React.JSX.Element {
@@ -37,6 +38,10 @@ export function Chat(): React.JSX.Element {
   const fileRef = useRef<HTMLInputElement>(null)
   const [showSettings, setShowSettings] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
+  const composerRef = useRef<HTMLTextAreaElement>(null)
+  // Roughly ten lines; past that the composer stops growing and scrolls, so it
+  // never crowds out the conversation.
+  useAutoSize(composerRef, input, 220)
   const stickToBottom = useRef(true)
 
   useEffect(() => {
@@ -208,6 +213,8 @@ export function Chat(): React.JSX.Element {
               </>
             )}
             <textarea
+              ref={composerRef}
+              rows={1}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onPaste={(e) => {
@@ -231,7 +238,6 @@ export function Chat(): React.JSX.Element {
                   submit()
                 }
               }}
-              rows={Math.min(10, input.split('\n').length)}
               placeholder={
                 ready
                   ? canSeeImages
@@ -240,7 +246,7 @@ export function Chat(): React.JSX.Element {
                   : 'Start a model to chat'
               }
               disabled={!ready}
-              className="max-h-56 flex-1 resize-none rounded-md border border-edge bg-ink px-3 py-2
+              className="flex-1 resize-none rounded-md border border-edge bg-ink px-3 py-2
                          text-sm outline-none focus:border-accent disabled:opacity-50"
             />
             {streaming ? (
