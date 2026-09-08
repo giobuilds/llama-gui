@@ -24,6 +24,7 @@ import type {
   McpServerConfig,
   McpServerState,
   McpSnapshot,
+  ReaderState,
   ToolDefinition,
   ToolResult,
   ServerStatus,
@@ -123,6 +124,17 @@ const api = {
     list: () => invoke<LaunchProfileView[]>(IPC.profileList),
     forget: (modelPath: string) => invoke<null>(IPC.profileForget, modelPath)
   },
+  reader: {
+    /** Open a page in the sandboxed pane. Never navigates this window. */
+    open: (url: string) => invoke<ReaderState | null>(IPC.readerOpen, url),
+    close: () => invoke<ReaderState | null>(IPC.readerClose),
+    back: () => invoke<null>(IPC.readerBack),
+    /** Where the pane should draw, or null while something covers it. */
+    setBounds: (bounds: { x: number; y: number; width: number; height: number } | null) =>
+      invoke<null>(IPC.readerBounds, bounds),
+    openExternal: (url: string) => invoke<null>(IPC.readerExternal, url),
+    onChanged: (cb: (state: ReaderState) => void) => subscribe<ReaderState>(IPC.readerChanged, cb)
+  },
   mcp: {
     list: () => invoke<McpSnapshot>(IPC.mcpList),
     save: (servers: McpServerConfig[]) => invoke<McpSnapshot>(IPC.mcpSave, servers),
@@ -141,7 +153,8 @@ const api = {
   chat: {
     list: () => invoke<ConversationSummaryView[]>(IPC.chatList),
     get: (id: string) => invoke<ConversationView | null>(IPC.chatGet, id),
-    create: (systemPrompt?: string) => invoke<ConversationView>(IPC.chatCreate, systemPrompt ?? ''),
+    create: (systemPrompt?: string, tools?: string[]) =>
+      invoke<ConversationView>(IPC.chatCreate, systemPrompt ?? '', tools ?? []),
     save: (conversation: ConversationView) => invoke<ConversationView>(IPC.chatSave, conversation),
     remove: (id: string) => invoke<null>(IPC.chatDelete, id)
   },

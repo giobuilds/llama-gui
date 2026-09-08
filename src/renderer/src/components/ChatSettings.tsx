@@ -11,7 +11,7 @@ import { useServerStore } from '../state/serverStore.js'
  */
 function ToolToggles({ onConfigure }: { onConfigure: () => void }): React.JSX.Element | null {
   const tools = useChatStore((s) => s.availableTools)
-  const enabled = useChatStore((s) => s.enabledTools)
+  const enabled = useChatStore((s) => activeConversation(s)?.tools ?? [])
   const toggle = useChatStore((s) => s.toggleTool)
   const canCall = useServerStore((s) => s.status?.supportsTools ?? false)
   if (tools.length === 0) return null
@@ -52,7 +52,7 @@ function ToolToggles({ onConfigure }: { onConfigure: () => void }): React.JSX.El
               type="checkbox"
               className="mt-0.5"
               checked={enabled.includes(t.name)}
-              onChange={() => toggle(t.name)}
+              onChange={() => void toggle(t.name)}
             />
             <span>
               <span className="text-xs text-slate-200">{t.label}</span>

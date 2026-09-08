@@ -11,6 +11,9 @@ import { subscribeToBench } from './state/benchStore.js'
 import { FlagReference } from './components/FlagReference.js'
 import { ContextMenu } from './components/ContextMenu.js'
 import { ToolSettings } from './components/ToolSettings.js'
+import { ReaderPanel } from './components/ReaderPanel.js'
+import { subscribeToReader, useReaderStore } from './state/readerStore.js'
+import { isWebUrl } from '@shared/url.js'
 import { StatusBadge } from './components/StatusBadge.js'
 
 type Tab = 'chat' | 'server' | 'models' | 'tuning'
@@ -31,6 +34,7 @@ export default function App(): React.JSX.Element {
     const offServer = subscribeToMain()
     const offDownloads = subscribeToDownloads()
     const offBench = subscribeToBench()
+    const offReader = subscribeToReader()
 
     // The menu does not act on the app directly; it asks the UI to do the same
     // things its buttons do, so there is one path to every action.
@@ -61,9 +65,39 @@ export default function App(): React.JSX.Element {
       offServer()
       offDownloads()
       offBench()
+      offReader()
       offMenu()
     }
   }, [init])
+
+  // Every link in the app goes to the reading pane. The main process refuses a
+  // remote navigation anyway; this is what makes the refusal useful rather than
+  // just a dead click.
+  useEffect(() => {
+    const onClick = (event: MouseEvent): void => {
+      const link = (event.target as HTMLElement | null)?.closest?.('a[href]')
+      const href = link?.getAttribute('href') ?? ''
+      if (!isWebUrl(href)) return
+      event.preventDefault()
+      // Holding a modifier means "not here", the same as it does in a browser.
+      if (event.ctrlKey || event.metaKey || event.button === 1) {
+        void window.llama.reader.openExternal(href)
+      } else {
+        void useReaderStore.getState().openUrl(href)
+      }
+    }
+    document.addEventListener('click', onClick)
+    document.addEventListener('auxclick', onClick)
+    return () => {
+      document.removeEventListener('click', onClick)
+      document.removeEventListener('auxclick', onClick)
+    }
+  }, [])
+
+  // The pane draws over the window, so it has to stand down for a modal.
+  useEffect(() => {
+    useReaderStore.getState().setHidden(showFlags || showTools)
+  }, [showFlags, showTools])
 
   // A reply is persisted when it finishes, so closing mid-generation would drop
   // whatever had streamed. Flush what is in flight before the window goes.
@@ -116,7 +150,8 @@ export default function App(): React.JSX.Element {
         </div>
       </nav>
 
-      <main className="min-h-0 flex-1">
+      <main className="flex min-h-0 flex-1">
+        <div className="min-w-0 flex-1">
         {tab === 'chat' ? (
           <Chat onConfigureTools={() => setShowTools(true)} />
         ) : tab === 'models' ? (
@@ -140,6 +175,8 @@ export default function App(): React.JSX.Element {
             </div>
           </div>
         )}
+        </div>
+        <ReaderPanel />
       </main>
 
       {showFlags && <FlagReference onClose={() => setShowFlags(false)} />}
