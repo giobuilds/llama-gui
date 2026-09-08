@@ -140,8 +140,17 @@ export class DownloadManager extends EventEmitter<DownloadEvents> {
    */
   private queued: Array<{ job: DownloadJob; expectedBytes: number }> = []
 
-  constructor(private binary: () => BinaryInfo) {
+  constructor(
+    private binary: () => BinaryInfo,
+    /** Persists finished jobs so the list survives a restart. */
+    private readonly onFinished: (job: DownloadJob) => void = () => {}
+  ) {
     super()
+  }
+
+  /** Seed the visible history from what was stored last time. */
+  restore(jobs: DownloadJob[]): void {
+    this.finished = jobs.slice(0, 20)
   }
 
   setBinary(binary: () => BinaryInfo): void {
@@ -329,6 +338,7 @@ export class DownloadManager extends EventEmitter<DownloadEvents> {
     // Keep a short history so the UI can show what just completed or failed.
     this.finished = [job, ...this.finished].slice(0, 20)
     this.emit('update', job)
+    this.onFinished(job)
     this.startNext(job.repo)
   }
 

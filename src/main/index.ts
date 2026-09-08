@@ -111,7 +111,16 @@ async function bootstrap(): Promise<void> {
 
   // The manager reads the binary lazily so a binary swap is picked up without
   // having to rebuild it.
-  downloads = new DownloadManager(() => supervisor!.binaryInfo)
+  downloads = new DownloadManager(
+    () => supervisor!.binaryInfo,
+    (job) => {
+      void settings.patch({
+        downloadHistory: [job, ...settings.current.downloadHistory.filter((j) => j.id !== job.id)]
+          .slice(0, 20)
+      })
+    }
+  )
+  downloads.restore(settings.current.downloadHistory)
   registerIpc(supervisor, settings, conversations, profiles, downloads, discovered)
   wireEvents(supervisor, downloads)
   await supervisor.adoptOrReap()

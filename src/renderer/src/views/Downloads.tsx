@@ -176,7 +176,9 @@ export function Downloads(): React.JSX.Element {
         </h2>
         <div className="min-h-0 flex-1 overflow-y-auto p-2">
           {active.length === 0 && recent.length === 0 && (
-            <p className="px-1 py-2 text-[11px] text-muted">Nothing downloaded yet.</p>
+            <p className="px-1 py-2 text-[11px] text-muted">
+              Nothing downloaded through this app yet.
+            </p>
           )}
           {active.map((j) => (
             <JobRow key={j.id} job={j} onCancel={() => void cancel(j.id)} />
