@@ -275,6 +275,19 @@ export interface BenchResult {
   buildCommit: string
 }
 
+/** What has actually been measured about this machine. */
+export interface MachineProfileView {
+  gpuBytesPerSecond: number | null
+  cpuBytesPerSecond: number | null
+  ceilingTokensPerSecond: number | null
+  gpuSamples: number
+  cpuSamples: number
+  vramBytes: number
+  ramBytes: number
+  /** True when the CPU figure is a stand-in rather than a measurement. */
+  cpuAssumed: boolean
+}
+
 export interface BenchProgress {
   current: number
   total: number

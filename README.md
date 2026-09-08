@@ -163,9 +163,22 @@ make that more than a division:
   attention on the GPU with experts in system RAM (`--cpu-moe`), so the estimate
   blends both bandwidths rather than refusing to answer.
 
-The machine's bandwidth is **measured, not assumed** — learned from the binary
-check and any benchmarks you run, so it needs no separate calibration step. Until
-something has been measured, no speed is claimed at all.
+The machine's bandwidth is **measured, not assumed**. Every benchmark and every
+binary check contributes a sample, and the Tuning tab has a **Calibrate this
+machine** sweep that measures generation with everything on the GPU and again
+with nothing on it — the second number decides whether a large mixture-of-experts
+model is usable and cannot be guessed from the hardware.
+
+Given samples at more than one model size, time per token is fitted as
+`overhead + bytes / bandwidth`, which separates fixed per-token cost from
+bandwidth instead of assuming either. The intercept is only trusted from three or
+more samples spanning a range of sizes: two large models here implied a ceiling
+of 1906 tok/s where small ones showed about 630, so a line through two distant
+points puts the intercept wherever the noise wants.
+
+Until something has been measured, no speed is claimed at all, and the Tuning tab
+says plainly which figures are measurements and which are still stand-ins. Move
+the app to another machine and it recalibrates from one sweep.
 
 ## Which model fits your machine
 

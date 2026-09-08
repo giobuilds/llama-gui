@@ -1,7 +1,7 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { PRESETS, fastest, useBenchStore } from '../state/benchStore.js'
 import { useServerStore } from '../state/serverStore.js'
-import type { BenchResult } from '@shared/types.js'
+import type { BenchResult, MachineProfileView } from '@shared/types.js'
 
 const ts = (n: number): string => n.toLocaleString(undefined, { maximumFractionDigits: 1 })
 
@@ -23,9 +23,21 @@ export function Tuning(): React.JSX.Element {
   const model = useServerStore((s) => s.draft.modelPath)
   const serverRunning = useServerStore((s) => (s.status?.pid ?? null) !== null)
 
+  const [machine, setMachine] = useState<MachineProfileView | null>(null)
+  const loadMachine = (): void => {
+    void window.llama.machine.profile().then(setMachine).catch(() => {})
+  }
+
   useEffect(() => {
     void init()
+    loadMachine()
   }, [init])
+
+  // A finished run adds measurements, so the profile is re-read rather than
+  // left showing what was true before it.
+  useEffect(() => {
+    if (run?.state === 'done') loadMachine()
+  }, [run?.state])
 
   const running = run?.state === 'running'
   const bestPrompt = run ? fastest(run.results, 'prompt') : null
@@ -55,6 +67,8 @@ export function Tuning(): React.JSX.Element {
             the numbers will describe the contention rather than the settings.
           </p>
         )}
+
+        {machine && <MachinePanel machine={machine} />}
 
         <section>
           <h2 className="mb-1.5 text-xs font-medium text-muted">What to compare</h2>
@@ -159,6 +173,59 @@ export function Tuning(): React.JSX.Element {
           )}
         </div>
       </section>
+    </div>
+  )
+}
+
+const gbs = (b: number | null): string => (b === null ? 'not measured' : `${(b / 1e9).toFixed(0)} GB/s`)
+
+/**
+ * What has actually been measured about this machine, and what is still a
+ * stand-in. The CPU figure matters most and is the one most likely to be
+ * missing: it decides whether a large mixture-of-experts model is usable, and it
+ * is only measured by a run with nothing on the GPU.
+ */
+function MachinePanel({ machine }: { machine: MachineProfileView }): React.JSX.Element {
+  return (
+    <section className="rounded border border-edge bg-ink/60 p-2.5">
+      <h2 className="mb-1.5 text-xs font-medium text-muted">This machine</h2>
+      <dl className="space-y-1 text-[11px]">
+        <Row label="GPU read speed" value={gbs(machine.gpuBytesPerSecond)}
+          hint={`${machine.gpuSamples} sample${machine.gpuSamples === 1 ? '' : 's'}`} />
+        <Row label="CPU read speed" value={gbs(machine.cpuBytesPerSecond)}
+          hint={machine.cpuAssumed ? 'assumed — run the calibration' : `${machine.cpuSamples} samples`}
+          warn={machine.cpuAssumed} />
+        <Row label="Small-model ceiling"
+          value={machine.ceilingTokensPerSecond ? `${Math.round(machine.ceilingTokensPerSecond)} tok/s` : 'not measured'}
+          hint="needs two model sizes" />
+        <Row label="Free VRAM" value={`${(machine.vramBytes / 1e9).toFixed(1)} GB`} />
+        <Row label="System RAM" value={`${(machine.ramBytes / 1e9).toFixed(0)} GB`} />
+      </dl>
+      {machine.cpuAssumed && (
+        <p className="mt-1.5 text-[11px] leading-snug text-amber-300">
+          Speed predictions for models too large for VRAM rest on the CPU figure.
+          Until it is measured they are guesses.
+        </p>
+      )}
+    </section>
+  )
+}
+
+function Row({
+  label, value, hint, warn
+}: {
+  label: string
+  value: string
+  hint?: string
+  warn?: boolean
+}): React.JSX.Element {
+  return (
+    <div className="flex items-baseline justify-between gap-2">
+      <dt className="text-muted">{label}</dt>
+      <dd className={`text-right ${warn ? 'text-amber-300' : 'text-slate-200'}`}>
+        {value}
+        {hint && <span className="ml-1.5 text-[10px] text-muted/70">{hint}</span>}
+      </dd>
     </div>
   )
 }

@@ -1,7 +1,9 @@
 import { ipcMain, dialog, BrowserWindow } from 'electron'
 import { ZodError } from 'zod'
 import type {
+  BenchResult,
   BenchRunView,
+  MachineProfileView,
   BinaryInfo,
   ConversationSummaryView,
   ConversationView,
@@ -38,6 +40,7 @@ import {
 } from './downloads.js'
 import { estimateRepoFit } from './remoteFit.js'
 import { activeParameters, type MachineProfile } from './speed.js'
+import { derive } from './calibration.js'
 import { totalmem } from 'node:os'
 import { BenchRunner } from './bench.js'
 import { benchRequestSchema } from '@shared/schema.js'
@@ -197,7 +200,7 @@ export function registerIpc(
       if (model && params) {
         await settings.observe({
           activeBytes: model.fileSize * (params.active / params.total),
-          tokensPerSecond: result.tokensPerSecond,
+          secondsPerToken: 1 / result.tokensPerSecond,
           onGpu: req.gpuLayers > 0 && supervisor.binaryInfo.devices.length > 0
         })
         repoFitCache.clear()
@@ -233,18 +236,19 @@ export function registerIpc(
    * being invented from a specification sheet.
    */
   const machineProfile = (): MachineProfile | undefined => {
-    const c = settings.current.calibration
-    if (!c.gpuBytesPerSecond && !c.cpuBytesPerSecond) return undefined
+    const derived = derive(settings.current.calibration)
+    if (!derived.gpuBytesPerSecond && !derived.cpuBytesPerSecond) return undefined
     const devices = supervisor.binaryInfo.devices
     const freeVram = devices[0]?.freeMiB ?? 0
     return {
-      gpuBytesPerSecond: c.gpuBytesPerSecond,
-      // A conservative stand-in until a CPU-only run is measured; dual-channel
-      // DDR4 achieves roughly this.
-      cpuBytesPerSecond: c.cpuBytesPerSecond ?? 20e9,
+      gpuBytesPerSecond: derived.gpuBytesPerSecond,
+      // Until a CPU-only run has been measured this is a stand-in, and it is the
+      // figure that decides whether a large mixture of experts is usable, so the
+      // UI says plainly when it has not been measured.
+      cpuBytesPerSecond: derived.cpuBytesPerSecond ?? 20e9,
       vramBytes: freeVram * 1024 * 1024,
       ramBytes: totalmem() * 0.65,
-      overheadCeilingTokensPerSecond: c.ceilingTokensPerSecond ?? 600
+      overheadCeilingTokensPerSecond: derived.ceilingTokensPerSecond ?? 600
     }
   }
 
@@ -311,13 +315,59 @@ export function registerIpc(
   })
   bench.on('done', (results) => {
     if (!benchRun) return
+    const request = benchRun.request
     benchRun = { ...benchRun, results, state: 'done', progress: null, finishedAt: Date.now() }
     pushBench()
+    // A benchmark is the most accurate measurement this app can take, and a
+    // sweep that includes -ngl 0 measures the CPU side too. Throwing that away
+    // and asking the user to calibrate separately would be perverse.
+    void absorbBenchResults(request.modelPath, results).catch(() => {})
   })
+
+  /**
+   * Turn generation rows into calibration samples. Prompt-processing rows are
+   * ignored: they are compute-bound rather than bandwidth-bound, so they say
+   * nothing about how fast weights can be read.
+   */
+  const absorbBenchResults = async (
+    modelPath: string,
+    results: BenchResult[]
+  ): Promise<void> => {
+    const model = (await listModels(false)).find((m) => m.path === modelPath)
+    const params = model ? activeParameters(model) : null
+    if (!model || !params) return
+    const activeBytes = model.fileSize * (params.active / params.total)
+    const hasGpu = supervisor.binaryInfo.devices.length > 0
+
+    for (const row of results) {
+      if (row.kind !== 'generation' || row.tokensPerSecond <= 0) continue
+      await settings.observe({
+        activeBytes,
+        secondsPerToken: 1 / row.tokensPerSecond,
+        // llama-bench reports -1 for "every layer", 0 for none.
+        onGpu: hasGpu && row.gpuLayers !== 0
+      })
+    }
+    repoFitCache.clear()
+  }
   bench.on('failed', (error) => {
     if (!benchRun) return
     benchRun = { ...benchRun, state: 'failed', error, progress: null, finishedAt: Date.now() }
     pushBench()
+  })
+
+  handle<MachineProfileView>(IPC.machineProfile, () => {
+    const derived = derive(settings.current.calibration)
+    return {
+      gpuBytesPerSecond: derived.gpuBytesPerSecond,
+      cpuBytesPerSecond: derived.cpuBytesPerSecond,
+      ceilingTokensPerSecond: derived.ceilingTokensPerSecond,
+      gpuSamples: derived.gpuSamples,
+      cpuSamples: derived.cpuSamples,
+      vramBytes: (supervisor.binaryInfo.devices[0]?.freeMiB ?? 0) * 1024 * 1024,
+      ramBytes: totalmem(),
+      cpuAssumed: derived.cpuBytesPerSecond === null
+    }
   })
 
   handle<BenchRunView>(IPC.benchStart, (raw) => {
