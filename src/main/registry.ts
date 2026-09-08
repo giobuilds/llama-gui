@@ -132,13 +132,15 @@ export function pairProjectors(entries: ModelEntry[]): ModelEntry[] {
           : []
     if (candidates.length === 0) return model
 
-    // Among several, prefer the one matching this model's quantisation, then
-    // the largest — a higher-precision projector is the safer default.
+    // Among several, prefer the one matching this model's quantisation, then the
+    // smallest. VRAM is the binding constraint, a quantised projector is close
+    // to lossless, and pairing a Q4 model with an f16 projector is a precision
+    // mismatch that can cost several hundred MiB for no visible gain.
     const quant = model.quant?.toLowerCase()
     const matching = quant
       ? candidates.find((p) => p.fileName.toLowerCase().includes(quant))
       : undefined
-    const chosen = matching ?? [...candidates].sort((a, b) => b.fileSize - a.fileSize)[0]!
+    const chosen = matching ?? [...candidates].sort((a, b) => a.fileSize - b.fileSize)[0]!
     return { ...model, projectorPath: chosen.path }
   })
 }

@@ -17,7 +17,9 @@ export default function App(): React.JSX.Element {
   const status = useServerStore((s) => s.status)
   const [tab, setTab] = useState<Tab>('chat')
 
-  const activeDownloads = useDownloadStore((s) => s.jobs.filter((j) => j.state === 'running').length)
+  const activeDownloads = useDownloadStore(
+    (s) => s.jobs.filter((j) => j.state === 'running' || j.state === 'queued').length
+  )
 
   useEffect(() => {
     void init()
