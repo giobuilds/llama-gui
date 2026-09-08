@@ -18,6 +18,11 @@ export interface ModelEntry extends GgufMetadata {
   /** Set when the header could not be read; the entry is still listed. */
   error?: string
   mtimeMs: number
+  /**
+   * Multimodal projector that belongs with this model, when one sits beside it.
+   * Vision models need it passed as --mmproj or they load as text-only.
+   */
+  projectorPath?: string
 }
 
 const MAX_DEPTH = 4
@@ -92,7 +97,65 @@ export async function scanModels(dirs: string[]): Promise<ModelEntry[]> {
     })
   )
 
-  return entries.sort((a, b) => a.name.localeCompare(b.name))
+  return pairProjectors(entries).sort((a, b) => a.name.localeCompare(b.name))
+}
+
+/**
+ * Projectors are GGUF files but not models — they cannot be launched alone, so
+ * listing them as choices only invites a confusing failure. Each is instead
+ * attached to the model it sits beside, which is how llama.cpp expects them to
+ * be paired.
+ */
+export function pairProjectors(entries: ModelEntry[]): ModelEntry[] {
+  const projectors = entries.filter((e) => e.isProjector)
+  const models = entries.filter((e) => !e.isProjector)
+  if (projectors.length === 0) return models
+
+  return models.map((model) => {
+    const dir = directoryOf(model.path)
+    const siblings = projectors.filter((p) => directoryOf(p.path) === dir)
+    if (siblings.length === 0) return model
+
+    // Sharing a directory is not enough. A flat models folder can hold one
+    // vision model, its projector and several unrelated text models; handing
+    // --mmproj to a text model would be wrong. So the names have to agree.
+    const base = strippedName(model.fileName)
+    const related = siblings.filter((p) => strippedName(p.fileName) === base)
+
+    // Some repos name the two differently. If the directory holds exactly one
+    // model and one projector, they belong together whatever they are called.
+    const candidates =
+      related.length > 0
+        ? related
+        : models.filter((m) => directoryOf(m.path) === dir).length === 1
+          ? siblings
+          : []
+    if (candidates.length === 0) return model
+
+    // Among several, prefer the one matching this model's quantisation, then
+    // the largest — a higher-precision projector is the safer default.
+    const quant = model.quant?.toLowerCase()
+    const matching = quant
+      ? candidates.find((p) => p.fileName.toLowerCase().includes(quant))
+      : undefined
+    const chosen = matching ?? [...candidates].sort((a, b) => b.fileSize - a.fileSize)[0]!
+    return { ...model, projectorPath: chosen.path }
+  })
+}
+
+function directoryOf(path: string): string {
+  return path.slice(0, path.lastIndexOf('/'))
+}
+
+/** "mmproj-SmolVLM-256M-Q8_0.gguf" and "SmolVLM-256M-Q8_0.gguf" both reduce to "smolvlm-256m". */
+function strippedName(fileName: string): string {
+  return fileName
+    .replace(/\.gguf$/i, '')
+    .replace(/^mmproj[-_.]/i, '')
+    .replace(/-\d{5}-of-\d{5}$/i, '')
+    .replace(/[.\-_](?:IQ|Q)\d[A-Z0-9_]*$/i, '')
+    .replace(/[.\-_](?:F16|BF16|F32|FP16)$/i, '')
+    .toLowerCase()
 }
 
 /** A file that cannot be parsed is still listed, with the reason attached. */
@@ -117,6 +180,7 @@ async function describe(path: string): Promise<ModelEntry> {
       parameterCount: null,
       hasChatTemplate: false,
       vocabSize: null,
+      isProjector: /^mmproj[-_.]/i.test(path.split('/').pop() ?? ''),
       mtimeMs,
       error: err instanceof Error ? err.message : String(err)
     }

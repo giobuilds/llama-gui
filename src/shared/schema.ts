@@ -16,6 +16,7 @@ export const launchConfigSchema = z.object({
   cacheTypeV: z.enum(KV_CACHE_TYPES),
   parallel: z.number().int().min(1).max(64),
   threads: z.number().int().min(-1).max(1024),
+  mmprojPath: z.string().nullable(),
   alias: z.string().max(200).optional(),
   extraArgs: z.string().max(4000)
 })

@@ -50,6 +50,11 @@ export interface LaunchConfig {
   parallel: number
   /** -t: generation threads. -1 lets llama.cpp decide. */
   threads: number
+  /**
+   * --mmproj: multimodal projector. Without it a vision model loads as
+   * text-only, silently — it starts and answers, it just cannot see.
+   */
+  mmprojPath: string | null
   /** --alias: the model name reported over the API. */
   alias?: string
   /** Extra raw flags, split on whitespace. Escape hatch for anything unmodelled. */
@@ -76,6 +81,7 @@ export const DEFAULT_LAUNCH_CONFIG: Omit<LaunchConfig, 'modelPath'> = {
   flashAttn: true,
   noWarmup: false,
   cacheTypeK: 'f16',
+  mmprojPath: null,
   cacheTypeV: 'f16',
   // Matches llama.cpp's own default. Forcing 1 here would silently prevent
   // concurrent conversations, which is the point of having slots at all.
@@ -108,6 +114,11 @@ export interface ServerStatus {
   readyAt: number | null
   /** True when we adopted a server that was already running rather than spawning it. */
   adopted: boolean
+  /**
+   * What the running model can accept, read from /props once it is ready.
+   * Null until then, since it cannot be known before the model loads.
+   */
+  modalities: { vision: boolean; audio: boolean; video: boolean } | null
 }
 
 export type LogStream = 'stdout' | 'stderr' | 'app'
@@ -194,6 +205,9 @@ export interface ModelEntryView {
   vocabSize: number | null
   mtimeMs: number
   error?: string
+  isProjector: boolean
+  /** Projector sitting beside this model, if any — needed for vision. */
+  projectorPath?: string
 }
 
 /** What `llama fit-params` recommends for a model on this machine. */
@@ -234,6 +248,12 @@ export interface HfFile {
   size: number
   /** Part of a multi-part model; only the first shard is offered. */
   shard: boolean
+  /**
+   * A multimodal projector rather than a model. Offering it as a download
+   * choice hands the user a file that cannot be launched, so it is fetched
+   * alongside its model instead.
+   */
+  isProjector: boolean
 }
 
 /** One row of `llama bench` output. */
@@ -349,6 +369,8 @@ export interface ChatMessageView {
   id: string
   role: 'system' | 'user' | 'assistant'
   content: string
+  /** Data URLs for images attached to a user turn. */
+  images?: string[]
   createdAt: number
   model?: string
   tokensPerSecond?: number

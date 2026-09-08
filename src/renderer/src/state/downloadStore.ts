@@ -130,7 +130,9 @@ export const FIT_RANK: Record<FitVerdict, number> = { full: 0, partial: 1, cpu: 
  * speed than the extra quality is worth.
  */
 export function recommendedFile(files: HfFile[], fits: Record<string, RemoteFit>): string | null {
-  const fitting = files.filter((f) => fits[f.path]?.verdict === 'full')
+  // A projector is never the recommendation: it is a companion file, not a
+  // model, and it is fetched alongside whichever model is chosen.
+  const fitting = files.filter((f) => !f.isProjector && fits[f.path]?.verdict === 'full')
   if (fitting.length === 0) return null
   return fitting.reduce((best, f) => (f.size > best.size ? f : best)).path
 }

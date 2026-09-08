@@ -70,6 +70,14 @@ export default function App(): React.JSX.Element {
               {status.config.modelPath.split('/').pop()}
             </span>
           )}
+          {status?.modalities?.vision && (
+            <span
+              title="This model can read images"
+              className="rounded bg-violet-900/50 px-1.5 py-0.5 text-[10px] text-violet-200"
+            >
+              vision
+            </span>
+          )}
           <StatusBadge phase={status?.phase ?? 'stopped'} />
         </div>
       </nav>

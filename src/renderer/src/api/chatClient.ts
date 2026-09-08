@@ -20,6 +20,24 @@ export interface StreamCallbacks {
 export interface ChatTurn {
   role: 'system' | 'user' | 'assistant'
   content: string
+  /** Data URLs; only meaningful on a user turn against a vision model. */
+  images?: string[]
+}
+
+/**
+ * llama.cpp accepts the OpenAI content-part shape, so a turn with images
+ * becomes an array of parts rather than a bare string. Text-only turns stay
+ * strings, which keeps requests identical to before for non-vision models.
+ */
+function encodeTurn(turn: ChatTurn): { role: string; content: unknown } {
+  if (!turn.images?.length) return { role: turn.role, content: turn.content }
+  return {
+    role: turn.role,
+    content: [
+      { type: 'text', text: turn.content },
+      ...turn.images.map((url) => ({ type: 'image_url', image_url: { url } }))
+    ]
+  }
 }
 
 interface StreamChunk {
@@ -46,7 +64,7 @@ export async function streamChat(
       headers: { 'content-type': 'application/json' },
       signal,
       body: JSON.stringify({
-        messages,
+        messages: messages.map(encodeTurn),
         stream: true,
         // llama.cpp reports timings in the final streamed chunk when asked.
         timings_per_token: true,

@@ -22,6 +22,14 @@ export const messageSchema = z.object({
   tokensPerSecond: z.number().optional(),
   /** Separate from content: reasoning models emit it, and it is collapsible in the UI. */
   reasoning: z.string().optional(),
+  /**
+   * Images attached to a user turn, as data URLs.
+   *
+   * Kept with the message rather than as separate files: a conversation stays a
+   * single self-contained document, which is what makes the JSON store viable.
+   * The trade-off is size, so the UI caps what it will attach.
+   */
+  images: z.array(z.string()).optional(),
   /** Set when generation was cut short, so a partial reply is not mistaken for a complete one. */
   stopped: z.boolean().optional(),
   error: z.string().optional()

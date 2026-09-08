@@ -63,6 +63,29 @@ export function LaunchPanel(): React.JSX.Element {
 
       <ProfileBadge disabled={live} />
 
+      {draft.mmprojPath && (
+        <div className="rounded-md border border-violet-900/70 bg-violet-950/20 p-2.5">
+          <div className="flex items-baseline justify-between gap-2">
+            <span className="text-[11px] font-medium text-violet-200">Vision projector found</span>
+            <button
+              type="button"
+              onClick={() => setDraft({ mmprojPath: null })}
+              disabled={live}
+              className="shrink-0 text-[11px] text-muted hover:text-rose-300 disabled:opacity-40"
+            >
+              Don&apos;t use
+            </button>
+          </div>
+          <p className="mt-0.5 truncate text-[11px] text-muted" title={draft.mmprojPath}>
+            {draft.mmprojPath.split('/').pop()}
+          </p>
+          <p className="mt-0.5 text-[11px] leading-snug text-muted/80">
+            Passed as --mmproj so the model can read images. Without it the model
+            still loads, but silently text-only.
+          </p>
+        </div>
+      )}
+
       {supports('--fit') && (
         <section className="rounded-md border border-edge bg-ink/60 p-3">
           <label className="flex items-start gap-2">
