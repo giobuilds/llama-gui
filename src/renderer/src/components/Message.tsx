@@ -122,6 +122,19 @@ export function Message({
             </div>
           )}
 
+          {message.images && message.images.length > 0 && (
+            <div className="mb-2 flex flex-wrap gap-2">
+              {message.images.map((src, i) => (
+                <img
+                  key={i}
+                  src={src}
+                  alt={`Attached image ${i + 1}`}
+                  className="max-h-64 rounded border border-edge object-contain"
+                />
+              ))}
+            </div>
+          )}
+
           {isUser ? (
             <p className="whitespace-pre-wrap break-words text-sm text-slate-100">
               {message.content}

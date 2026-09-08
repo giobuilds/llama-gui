@@ -34,6 +34,29 @@ export function repoCacheDir(repo: string): string {
   return join(hubRoot(), `models--${repo.replace(/\//g, '--')}`)
 }
 
+/** llama.cpp's own convention: projectors are published as `mmproj-*.gguf`. */
+export function isProjectorName(path: string): boolean {
+  const name = path.split('/').pop() ?? path
+  return /^mmproj[-_.]/i.test(name)
+}
+
+/**
+ * The projector to fetch alongside a model.
+ *
+ * Prefers one sharing the model's quantisation, then the largest — a
+ * higher-precision projector is the safer default, and they are small relative
+ * to the model.
+ */
+export function projectorFor(modelFile: string, files: HfFile[]): HfFile | null {
+  const projectors = files.filter((f) => f.isProjector)
+  if (projectors.length === 0) return null
+  const quant = modelFile.match(/(?:^|[.\-_])((?:IQ|Q)\d[A-Z0-9_]*|F16|BF16|F32)/i)?.[1]
+  const matching = quant
+    ? projectors.find((p) => p.path.toLowerCase().includes(quant.toLowerCase()))
+    : undefined
+  return matching ?? [...projectors].sort((a, b) => b.size - a.size)[0]!
+}
+
 export async function searchModels(query: string, limit = 20): Promise<HfModel[]> {
   const url =
     `${HF_API}/models?filter=gguf&sort=downloads&direction=-1&limit=${limit}` +
@@ -70,6 +93,7 @@ export async function listRepoFiles(repo: string): Promise<HfFile[]> {
     .map((f) => ({
       path: f.path,
       size: f.size ?? 0,
+      isProjector: isProjectorName(f.path),
       // A split model is handed to llama.cpp as its first shard; the rest are
       // found automatically, so offering them individually would mislead.
       shard: /-(\d{5})-of-(\d{5})\.gguf$/i.test(f.path)

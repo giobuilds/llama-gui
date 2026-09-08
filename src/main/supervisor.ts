@@ -62,6 +62,7 @@ export class ServerSupervisor extends EventEmitter<SupervisorEvents> {
   private readyAt: number | null = null
   private startedAt: number | null = null
   private adopted = false
+  private modalities: ServerStatus['modalities'] = null
 
   private healthTimer: NodeJS.Timeout | null = null
   private healthFailures = 0
@@ -96,7 +97,8 @@ export class ServerSupervisor extends EventEmitter<SupervisorEvents> {
       error: this.error,
       exitCode: this.exitCode,
       readyAt: this.readyAt,
-      adopted: this.adopted
+      adopted: this.adopted,
+      modalities: this.modalities
     }
   }
 
@@ -158,6 +160,7 @@ export class ServerSupervisor extends EventEmitter<SupervisorEvents> {
       const wasIntentional = this.stopping !== null
       this.child = null
       this.pid = null
+      this.modalities = null
       void rm(this.handoffPath, { force: true })
       if (wasIntentional) {
         this.setPhase('stopped', { error: null, stage: null })
@@ -246,6 +249,9 @@ export class ServerSupervisor extends EventEmitter<SupervisorEvents> {
       if (this.phase !== 'ready') {
         this.readyAt = Date.now()
         this.setPhase('ready', { error: null, stage: null })
+        // What the model can actually accept is only knowable once it is
+        // loaded, and passing --mmproj is not proof it took effect.
+        void this.readModalities()
       }
       return
     }
@@ -268,6 +274,26 @@ export class ServerSupervisor extends EventEmitter<SupervisorEvents> {
       if (this.healthFailures >= DEGRADED_AFTER) this.setPhase('degraded')
     } else if (this.phase === 'degraded') {
       this.healthFailures += 1
+    }
+  }
+
+  private async readModalities(): Promise<void> {
+    const url = this.baseUrl
+    if (!url) return
+    try {
+      const res = await fetch(`${url}/props`, { signal: AbortSignal.timeout(5000) })
+      if (!res.ok) return
+      const props = (await res.json()) as {
+        modalities?: { vision?: boolean; audio?: boolean; video?: boolean }
+      }
+      this.modalities = {
+        vision: Boolean(props.modalities?.vision),
+        audio: Boolean(props.modalities?.audio),
+        video: Boolean(props.modalities?.video)
+      }
+      this.emit('status', this.status)
+    } catch {
+      // Telemetry only — a server that will not answer /props still works.
     }
   }
 
@@ -429,6 +455,7 @@ export function buildArgs(config: LaunchConfig, port: number, binary: BinaryInfo
     args.push('--ctx-size', String(config.contextSize))
     args.push('--gpu-layers', String(config.gpuLayers))
   }
+  if (config.mmprojPath) args.push('--mmproj', config.mmprojPath)
   if (binary.flashAttnStyle === 'value') {
     args.push('--flash-attn', config.flashAttn ? 'on' : 'off')
   } else if (config.flashAttn) {

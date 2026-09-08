@@ -137,6 +137,11 @@ export function Downloads(): React.JSX.Element {
                             Only what fits
                           </label>
                         </div>
+                        {files.some((f) => f.isProjector) && (
+                          <p className="mb-1.5 text-[11px] text-violet-300">
+                            Vision model — the projector it needs is downloaded with it.
+                          </p>
+                        )}
                         <ul className="space-y-1">
                           {orderFiles(files, fits, sortBy, onlyFitting).map((f) => (
                             <FileRow
@@ -191,14 +196,16 @@ function orderFiles(
   sortBy: 'size' | 'fit',
   onlyFitting: boolean
 ): HfFile[] {
+  // Projectors are downloaded with their model, never chosen on their own.
+  const choosable = files.filter((f) => !f.isProjector)
   const visible = onlyFitting
-    ? files.filter((f) => {
+    ? choosable.filter((f) => {
         const v = fits[f.path]?.verdict
         // While estimates are still loading, hiding everything would look
         // broken, so unknowns stay visible.
         return v === 'full' || v === undefined || v === 'unknown'
       })
-    : files
+    : choosable
   if (sortBy === 'size') return [...visible].sort((a, b) => a.size - b.size)
   return [...visible].sort((a, b) => {
     const va = fits[a.path]?.verdict ?? 'unknown'

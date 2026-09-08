@@ -40,7 +40,7 @@ interface ChatState {
   open: (id: string) => Promise<void>
   create: () => Promise<void>
   remove: (id: string) => Promise<void>
-  send: (text: string) => Promise<void>
+  send: (text: string, images?: string[]) => Promise<void>
   stop: (conversationId?: string) => void
   stopAll: () => void
   flushInFlight: () => Promise<void>
@@ -111,9 +111,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
-  async send(text) {
+  async send(text, images) {
     const trimmed = text.trim()
-    if (!trimmed) return
+    // An image on its own is a valid message; the model is being asked to
+    // describe it.
+    if (!trimmed && !images?.length) return
     let conversation = activeConversation(get())
     if (!conversation) {
       await get().create()
@@ -128,13 +130,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
       id: newId(),
       role: 'user',
       content: trimmed,
+      ...(images?.length ? { images } : {}),
       createdAt: Date.now()
     }
     const withUser: ConversationView = {
       ...conversation,
       title: conversation.messages.some((m) => m.role === 'user')
         ? conversation.title
-        : deriveTitle(trimmed),
+        : deriveTitle(trimmed || 'Image'),
       messages: [...conversation.messages, userMessage]
     }
     put(set, get, withUser)
@@ -291,7 +294,7 @@ async function runCompletion(conversationId: string, set: Setter, get: Getter): 
   }
   for (const m of conversation.messages) {
     if (m.role === 'system') continue
-    turns.push({ role: m.role, content: m.content })
+    turns.push({ role: m.role, content: m.content, ...(m.images?.length ? { images: m.images } : {}) })
   }
 
   const reply: ChatMessageView = {

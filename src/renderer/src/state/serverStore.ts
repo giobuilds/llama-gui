@@ -223,8 +223,14 @@ export const useServerStore = create<ServerState>((set, get) => ({
       // A missing profile is the normal case for a new model.
     }
 
+    // A vision model without its projector loads as text-only and never says
+    // so, so the pairing found on disk is applied unless a profile overrides it.
+    const projector = get().models.find((m) => m.path === modelPath)?.projectorPath ?? null
+
     set((s) => ({
-      draft: profile ? { ...s.draft, ...profile.config, modelPath } : { ...s.draft, modelPath },
+      draft: profile
+        ? { ...s.draft, ...profile.config, modelPath }
+        : { ...s.draft, modelPath, mmprojPath: projector },
       profile,
       profileApplied: Boolean(profile)
     }))

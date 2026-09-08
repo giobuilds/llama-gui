@@ -67,6 +67,12 @@ export interface GgufMetadata {
    * buffer, which on small models is larger than the KV cache.
    */
   vocabSize: number | null
+  /**
+   * True for a multimodal projector (mmproj). These are GGUF files but not
+   * models: they carry a vision encoder that pairs with a language model, and
+   * they cannot be launched on their own.
+   */
+  isProjector: boolean
 }
 
 class Cursor {
@@ -257,6 +263,21 @@ export function parseSizeLabel(label: string): number | null {
   return Number(m[1]) * (m[2] ? (scale[m[2]!.toUpperCase()] ?? 1) : 1)
 }
 
+/**
+ * A projector declares `general.architecture = clip` and usually
+ * `general.type = clip-vision`. The filename is only a fallback, for a header
+ * too truncated to carry either.
+ */
+export function isProjectorHeader(
+  architecture: string,
+  generalType: GgufValue | undefined,
+  fileName: string
+): boolean {
+  if (architecture === 'clip') return true
+  if (typeof generalType === 'string' && generalType.startsWith('clip')) return true
+  return /^mmproj[-_.]/i.test(fileName)
+}
+
 const num = (v: GgufValue | undefined): number | null =>
   typeof v === 'number' && Number.isFinite(v) ? v : null
 
@@ -310,7 +331,8 @@ export async function readGgufMetadata(path: string): Promise<GgufMetadata> {
         num(kv.get('general.parameter_count')) ??
         (typeof sizeLabel === 'string' ? parseSizeLabel(sizeLabel) : null),
       hasChatTemplate: kv.has('tokenizer.chat_template'),
-      vocabSize: arrayLengths.get('tokenizer.ggml.tokens') ?? null
+      vocabSize: arrayLengths.get('tokenizer.ggml.tokens') ?? null,
+      isProjector: isProjectorHeader(arch, kv.get('general.type'), basename(path))
     }
   } finally {
     await fh.close()

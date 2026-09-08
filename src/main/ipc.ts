@@ -29,7 +29,13 @@ import { fitParams } from './fit.js'
 import { runHealthCheck } from './health.js'
 import { conversationSchema, type ConversationStore } from './conversations.js'
 import type { ProfileStore } from './profiles.js'
-import { searchModels, listRepoFiles, type DownloadManager } from './downloads.js'
+import {
+  searchModels,
+  listRepoFiles,
+  projectorFor,
+  isProjectorName,
+  type DownloadManager
+} from './downloads.js'
 import { estimateRepoFit } from './remoteFit.js'
 import { BenchRunner } from './bench.js'
 import { benchRequestSchema } from '@shared/schema.js'
@@ -230,6 +236,20 @@ export function registerIpc(
   handle<DownloadJob>(IPC.downloadStart, async (raw) => {
     const req = downloadRequestSchema.parse(raw)
     const job = await downloads.start(req.repo, req.file, req.expectedBytes)
+
+    // A vision model without its projector loads as text-only and never says
+    // so. `llama download` does not fetch it for a specific --hf-file, so the
+    // pair is queued here rather than leaving the user a half-usable model.
+    try {
+      const files = await listRepoFiles(req.repo)
+      const projector = projectorFor(req.file, files)
+      if (projector && !isProjectorName(req.file)) {
+        await downloads.start(req.repo, projector.path, projector.size)
+      }
+    } catch {
+      // The model itself is already downloading; failing to pair a projector
+      // should not undo that.
+    }
     return job
   })
   handle<null>(IPC.downloadCancel, (id) => {

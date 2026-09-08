@@ -38,6 +38,7 @@ to end:
   fine but cannot run inference is caught in seconds rather than mid-chat
 - **Per-model profiles**: the settings that last worked for a model are
   remembered and reapplied when you pick it again
+- **Vision**: attach images to a message when the loaded model can read them
 - **Tuning**: benchmark launch settings with `llama bench` and apply the fastest
 - **Model downloads**: search Hugging Face, see which quantisations fit your GPU
   *before* downloading, and pull one with live progress
@@ -98,6 +99,28 @@ to preview that decision.
 The planner is still worth having: it explains *why* a configuration costs what
 it does and updates live as you change settings, which a one-shot fitter cannot.
 Turn auto-fit off to drive it yourself.
+
+## Vision models
+
+A vision model is two files: the model and a multimodal projector (`mmproj`).
+Without the projector passed as `--mmproj` the model still loads and still
+answers — it simply cannot see, and nothing says so. So the projector is treated
+as part of the model rather than as a separate thing to remember:
+
+- projectors are identified from their metadata (`general.architecture = clip`),
+  not just their filename, and kept out of the model list — they cannot be
+  launched alone
+- each is attached to the model it belongs with, matched on name rather than
+  merely sharing a directory, so a text model in a flat models folder never
+  inherits one
+- downloading a vision model fetches its projector too; `llama download` does
+  not do this for a specific `--hf-file`
+
+Whether images can actually be sent is read from the running server's `/props`
+(`modalities.vision`), not inferred from having passed a flag — passing one is
+no guarantee it took effect. Attached images travel with the conversation as
+data URLs, capped at 8 MB each, which keeps a conversation a single
+self-contained document.
 
 ## Tuning
 
