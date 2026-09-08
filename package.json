@@ -1,9 +1,12 @@
 {
   "name": "llama-gui",
   "version": "0.1.0",
-  "description": "An Electron control panel for llama.cpp — owns the llama-server process",
+  "description": "Desktop control panel for llama.cpp: launch, tune, download and chat with local models",
   "main": "./out/main/index.js",
-  "author": "Giovanni Dick",
+  "author": {
+    "name": "Giovanni Dick",
+    "email": "giova19@proton.me"
+  },
   "license": "MIT",
   "type": "module",
   "scripts": {
@@ -36,5 +39,6 @@
     "react-dom": "^19.2.8",
     "zod": "^4.5.4",
     "zustand": "^5.0.15"
-  }
+  },
+  "desktopName": "llama-gui.desktop"
 }

@@ -7,11 +7,17 @@ files:
   - out/**
   - package.json
 linux:
+  icon: resources/icon.png
+  # Without this, desktop environments do not associate running windows with the
+  # .desktop entry, so the app shows a generic icon in the dock and switcher.
+  synopsis: Control panel for llama.cpp
+  desktop:
+    entry:
+      Name: llama-gui
   target:
     - AppImage
     - rpm
   category: Development
-  synopsis: Control panel for llama.cpp
   description: >-
     Launch, monitor and tune llama-server without a terminal: pick a GGUF, see
     what fits in VRAM, and chat with it.
