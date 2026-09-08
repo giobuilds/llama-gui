@@ -100,6 +100,24 @@ The planner is still worth having: it explains *why* a configuration costs what
 it does and updates live as you change settings, which a one-shot fitter cannot.
 Turn auto-fit off to drive it yourself.
 
+## The menu
+
+Electron's default menu is written for a generic web wrapper — its Help points at
+electronjs.org and its Edit menu offers clipboard operations that mean nothing
+here. It is replaced with the things this app can do, and with the two references
+a llama.cpp user actually wants: **Help → llama.cpp Flag Reference** and
+**Help → Search Issues**.
+
+The flag reference is built from the installed binary's own `--help`, parsed into
+sections with descriptions and environment variables, and searchable. It is not a
+bundled copy: llama.cpp adds and renames options often enough that a shipped list
+would eventually describe flags that do not exist. On the build here that is 257
+options across four sections.
+
+Menu items never act on the app directly — they ask the renderer to do exactly
+what its buttons do, so there is one path to every action rather than two that
+can drift apart.
+
 ## Vision models
 
 A vision model is two files: the model and a multimodal projector (`mmproj`).

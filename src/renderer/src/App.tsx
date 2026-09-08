@@ -8,6 +8,7 @@ import { subscribeToMain, useServerStore } from './state/serverStore.js'
 import { useChatStore } from './state/chatStore.js'
 import { subscribeToDownloads, useDownloadStore } from './state/downloadStore.js'
 import { subscribeToBench } from './state/benchStore.js'
+import { FlagReference } from './components/FlagReference.js'
 import { StatusBadge } from './components/StatusBadge.js'
 
 type Tab = 'chat' | 'server' | 'models' | 'tuning'
@@ -16,6 +17,7 @@ export default function App(): React.JSX.Element {
   const init = useServerStore((s) => s.init)
   const status = useServerStore((s) => s.status)
   const [tab, setTab] = useState<Tab>('chat')
+  const [showFlags, setShowFlags] = useState(false)
 
   const activeDownloads = useDownloadStore(
     (s) => s.jobs.filter((j) => j.state === 'running' || j.state === 'queued').length
@@ -26,10 +28,36 @@ export default function App(): React.JSX.Element {
     const offServer = subscribeToMain()
     const offDownloads = subscribeToDownloads()
     const offBench = subscribeToBench()
+
+    // The menu does not act on the app directly; it asks the UI to do the same
+    // things its buttons do, so there is one path to every action.
+    const offMenu = window.llama.menu.onAction((action) => {
+      switch (action) {
+        case 'tab:chat': setTab('chat'); break
+        case 'tab:server': setTab('server'); break
+        case 'tab:models': setTab('models'); break
+        case 'tab:tuning': setTab('tuning'); break
+        case 'help:flags': setShowFlags(true); break
+        case 'chat:new':
+          setTab('chat')
+          void useChatStore.getState().create()
+          break
+        case 'server:start': void useServerStore.getState().start(); break
+        case 'server:stop': void useServerStore.getState().stop(); break
+        case 'server:verify':
+          setTab('server')
+          void useServerStore.getState().runHealthCheck()
+          break
+        case 'models:rescan': void useServerStore.getState().loadModels(true); break
+        case 'models:add-folder': void useServerStore.getState().addModelDir(); break
+      }
+    })
+
     return () => {
       offServer()
       offDownloads()
       offBench()
+      offMenu()
     }
   }, [init])
 
@@ -109,6 +137,8 @@ export default function App(): React.JSX.Element {
           </div>
         )}
       </main>
+
+      {showFlags && <FlagReference onClose={() => setShowFlags(false)} />}
     </div>
   )
 }

@@ -89,6 +89,101 @@ async function capture(bin: string, args: string[]): Promise<string> {
   }
 }
 
+/**
+ * One documented option, as the installed binary describes it.
+ *
+ * Parsed from --help rather than shipped as a copy, so the reference always
+ * matches the build actually installed — llama.cpp adds, renames and changes
+ * the meaning of flags often enough that a bundled list would mislead.
+ */
+export interface FlagDoc {
+  /** e.g. "-c, --ctx-size" */
+  names: string
+  /** Argument placeholder, e.g. "N" or "{none,linear,yarn}". Empty for switches. */
+  argument: string
+  description: string
+  /** Section heading it appeared under, e.g. "sampling params". */
+  section: string
+  /** Environment variable that sets the same thing, when documented. */
+  env: string | null
+}
+
+/**
+ * llama.cpp lays --help out as a flag column and a description column, with
+ * wrapped descriptions continuing on indented lines, and `----- name -----`
+ * section headers between groups.
+ */
+/** "N", "TYPE", "<dev1,dev2>", "{none,linear}", "[on|off]", "MiB0,MiB1,..." */
+function isArgumentPlaceholder(part: string): boolean {
+  if (part.length > 40) return false
+  return /^(?:[A-Z][A-Z0-9_]*|<[^>]+>|\{[^}]+\}|\[[^\]]+\]|[A-Za-z]+\d[\w,.]*)$/.test(part)
+}
+
+export function parseFlagDocs(helpText: string): FlagDoc[] {
+  const docs: FlagDoc[] = []
+  let section = 'general'
+  let current: FlagDoc | null = null
+
+  const push = (): void => {
+    if (!current) return
+    current.description = current.description.replace(/\s+/g, ' ').trim()
+    const env = current.description.match(/\(env:\s*([A-Z0-9_]+)\)/)
+    if (env) {
+      current.env = env[1]!
+      current.description = current.description.replace(env[0], '').trim()
+    }
+    if (current.names) docs.push(current)
+    current = null
+  }
+
+  for (const raw of helpText.split('\n')) {
+    const heading = raw.match(/^-{2,}\s*(.+?)\s*-{2,}$/)
+    if (heading) {
+      push()
+      section = heading[1]!.trim()
+      continue
+    }
+    // A flag line starts at the left margin with a dash. The flag column holds
+    // several space-separated pieces — "-c,    --ctx-size N" — so the split
+    // cannot simply be "the first run of two spaces", which lands after "-c,".
+    if (/^-/.test(raw)) {
+      push()
+      const parts = raw.trim().split(/\s{2,}/)
+      const names: string[] = []
+      let argument = ''
+      let i = 0
+      for (; i < parts.length; i++) {
+        const part = parts[i]!
+        if (part.startsWith('-')) {
+          names.push(part)
+          continue
+        }
+        // An argument placeholder: N, TYPE, <dev1,dev2>, {none,linear}, [on|off].
+        if (!argument && isArgumentPlaceholder(part)) {
+          argument = part
+          continue
+        }
+        break
+      }
+      const joined = names.join(' ').trim()
+      // A trailing placeholder can also sit inside the last name chunk.
+      const trailing = joined.match(/^(.*?)\s+([A-Z][A-Z0-9_]*|<[^>]+>|\{[^}]+\}|\[[^\]]+\])$/)
+      current = {
+        names: (trailing ? trailing[1]! : joined).replace(/,$/, '').trim(),
+        argument: argument || (trailing ? trailing[2]! : ''),
+        description: parts.slice(i).join(' ').trim(),
+        section,
+        env: null
+      }
+      continue
+    }
+    // Indented continuation of the previous description.
+    if (current && /^\s{2,}\S/.test(raw)) current.description += ` ${raw.trim()}`
+  }
+  push()
+  return docs
+}
+
 /** Every long flag the binary advertises, so the UI can hide unsupported controls. */
 export function parseFlags(helpText: string): string[] {
   const flags = new Set<string>()
@@ -152,6 +247,7 @@ export async function probeBinary(candidate: Candidate): Promise<BinaryInfo> {
     argvPrefix: prefix,
     version,
     flags: parseFlags(helpText),
+    flagDocs: parseFlagDocs(helpText),
     flashAttnStyle: parseFlashAttnStyle(helpText),
     devices: parseDevices(listText),
     label: `${kind === 'unified' ? 'llama serve' : 'llama-server'} — ${version}`

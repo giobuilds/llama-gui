@@ -9,6 +9,7 @@ import { ProfileStore } from './profiles.js'
 import { recordSuccessfulLaunches } from './profileRecorder.js'
 import { DownloadManager } from './downloads.js'
 import { registerIpc, wireEvents } from './ipc.js'
+import { buildAppMenu } from './menu.js'
 import type { BinaryInfo } from '@shared/types.js'
 
 const dirname = fileURLToPath(new URL('.', import.meta.url))
@@ -95,6 +96,7 @@ async function bootstrap(): Promise<void> {
       argvPrefix: [],
       version: 'not found',
       flags: [],
+      flagDocs: [],
       flashAttnStyle: 'bare',
       devices: [],
       label: 'no llama.cpp found'
@@ -125,6 +127,7 @@ async function bootstrap(): Promise<void> {
   wireEvents(supervisor, downloads)
   await supervisor.adoptOrReap()
 
+  buildAppMenu(() => supervisor)
   createWindow()
 }
 
