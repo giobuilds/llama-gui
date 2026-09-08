@@ -86,6 +86,9 @@ const api = {
     start: (repo: string, file: string, expectedBytes: number) =>
       invoke<DownloadJob>(IPC.downloadStart, { repo, file, expectedBytes }),
     cancel: (id: string) => invoke<null>(IPC.downloadCancel, id),
+    /** Remove one finished entry from the list; the transfer is untouched. */
+    forget: (id: string) => invoke<null>(IPC.downloadForget, id),
+    clearFinished: () => invoke<null>(IPC.downloadClearFinished),
     list: () => invoke<DownloadJob[]>(IPC.downloadList),
     onChanged: (cb: (job: DownloadJob) => void) => subscribe(IPC.downloadChanged, cb)
   },

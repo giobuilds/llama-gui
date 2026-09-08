@@ -31,6 +31,8 @@ export function Downloads(): React.JSX.Element {
   const start = useDownloadStore((s) => s.start)
   const cancel = useDownloadStore((s) => s.cancel)
   const clearError = useDownloadStore((s) => s.clearError)
+  const forget = useDownloadStore((s) => s.forget)
+  const clearFinished = useDownloadStore((s) => s.clearFinished)
   const setSortBy = useDownloadStore((s) => s.setSortBy)
   const setOnlyFitting = useDownloadStore((s) => s.setOnlyFitting)
   const device = useServerStore((s) => s.devices[0] ?? null)
@@ -171,9 +173,19 @@ export function Downloads(): React.JSX.Element {
       </section>
 
       <aside className="flex w-80 shrink-0 flex-col border-l border-edge bg-panel">
-        <h2 className="border-b border-edge px-3 py-2 text-xs font-semibold text-muted">
-          Downloads
-        </h2>
+        <div className="flex items-center gap-2 border-b border-edge px-3 py-2">
+          <h2 className="text-xs font-semibold text-muted">Downloads</h2>
+          {recent.length > 0 && (
+            <button
+              type="button"
+              onClick={() => void clearFinished()}
+              title="Remove finished entries from this list. Downloaded files are not deleted."
+              className="ml-auto text-[11px] text-muted hover:text-accent"
+            >
+              Clear
+            </button>
+          )}
+        </div>
         <div className="min-h-0 flex-1 overflow-y-auto p-2">
           {active.length === 0 && recent.length === 0 && (
             <p className="px-1 py-2 text-[11px] text-muted">
@@ -181,10 +193,10 @@ export function Downloads(): React.JSX.Element {
             </p>
           )}
           {active.map((j) => (
-            <JobRow key={j.id} job={j} onCancel={() => void cancel(j.id)} />
+            <JobRow key={j.id} job={j} onCancel={() => void cancel(j.id)} onForget={() => void forget(j.id)} />
           ))}
           {recent.map((j) => (
-            <JobRow key={j.id} job={j} onCancel={() => void cancel(j.id)} />
+            <JobRow key={j.id} job={j} onCancel={() => void cancel(j.id)} onForget={() => void forget(j.id)} />
           ))}
         </div>
       </aside>
@@ -362,7 +374,15 @@ function outcomeOf(job: DownloadJob): string {
   return job.error ?? 'Failed'
 }
 
-function JobRow({ job, onCancel }: { job: DownloadJob; onCancel: () => void }): React.JSX.Element {
+function JobRow({
+  job,
+  onCancel,
+  onForget
+}: {
+  job: DownloadJob
+  onCancel: () => void
+  onForget: () => void
+}): React.JSX.Element {
   const pct =
     job.expectedBytes > 0 ? Math.min(100, (job.receivedBytes / job.expectedBytes) * 100) : 0
   const tone =
@@ -375,14 +395,23 @@ function JobRow({ job, onCancel }: { job: DownloadJob; onCancel: () => void }): 
           : 'text-slate-200'
 
   return (
-    <div className="mb-2 rounded border border-edge bg-ink/60 p-2">
+    <div className="group mb-2 rounded border border-edge bg-ink/60 p-2">
       <div className="flex items-baseline gap-2">
         <span className="min-w-0 flex-1 truncate text-[11px] text-slate-200" title={`${job.repo}/${job.file}`}>
           {job.file}
         </span>
-        {(job.state === 'running' || job.state === 'queued') && (
+        {job.state === 'running' || job.state === 'queued' ? (
           <button type="button" onClick={onCancel} className="text-[11px] text-muted hover:text-rose-300">
             Cancel
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={onForget}
+            title="Remove from this list. The downloaded file is not deleted."
+            className="shrink-0 text-[11px] leading-none text-muted hover:text-rose-300"
+          >
+            ✕
           </button>
         )}
       </div>

@@ -130,6 +130,11 @@ async function bootstrap(): Promise<void> {
         downloadHistory: [job, ...settings.current.downloadHistory.filter((j) => j.id !== job.id)]
           .slice(0, 20)
       })
+    },
+    (id) => {
+      void settings.patch({
+        downloadHistory: settings.current.downloadHistory.filter((j) => j.id !== id)
+      })
     }
   )
   downloads.restore(settings.current.downloadHistory)

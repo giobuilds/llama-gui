@@ -275,6 +275,14 @@ export function registerIpc(
   })
 
   handle<DownloadJob[]>(IPC.downloadList, () => downloads.listWithDiskState())
+  handle<null>(IPC.downloadForget, (id) => {
+    downloads.forget(String(id ?? ''))
+    return null
+  })
+  handle<null>(IPC.downloadClearFinished, () => {
+    downloads.clearFinished()
+    return null
+  })
   handle<DownloadJob>(IPC.downloadStart, async (raw) => {
     const req = downloadRequestSchema.parse(raw)
     const job = await downloads.start(req.repo, req.file, req.expectedBytes)
