@@ -1,4 +1,4 @@
-import { searchWeb, fetchPage, SearchRateLimited, DEFAULT_LIMITS } from './web.js'
+import { searchWeb, searchSearxng, fetchPage, SearchRateLimited, DEFAULT_LIMITS } from './web.js'
 import type { ToolDefinition, ToolResult } from '@shared/types.js'
 
 /**
@@ -56,6 +56,15 @@ export const BUILT_IN_TOOLS: ToolDefinition[] = [
  * search failed can say so or try something else, whereas a thrown error ends
  * the reply and tells the person nothing.
  */
+/**
+ * Where searches go. A configured SearXNG instance is preferred because a
+ * self-hosted one has no rate limit; the default engine very much does.
+ */
+let searxngUrl = ''
+export function setSearxngUrl(url: string): void {
+  searxngUrl = url.trim()
+}
+
 export async function runTool(name: string, args: Record<string, unknown>): Promise<ToolResult> {
   try {
     if (name === WEB_SEARCH) return await runSearch(String(args['query'] ?? ''))
@@ -73,7 +82,7 @@ async function runSearch(query: string): Promise<ToolResult> {
   }
   let results
   try {
-    results = await searchWeb(query)
+    results = searxngUrl ? await searchSearxng(searxngUrl, query) : await searchWeb(query)
   } catch (err) {
     if (err instanceof SearchRateLimited) {
       // Told plainly, so the model waits or answers from what it has instead of

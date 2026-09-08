@@ -43,6 +43,11 @@ export function buildAppMenu(supervisor: () => ServerSupervisor | null): void {
           click: () => send(IPC.menuAction, 'models:rescan')
         },
         { type: 'separator' },
+        {
+          label: 'Tools and MCP Servers…',
+          click: () => send(IPC.menuAction, 'tools:configure')
+        },
+        { type: 'separator' },
         { role: 'quit' }
       ]
     },

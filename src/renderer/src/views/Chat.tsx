@@ -8,7 +8,7 @@ import { Attachments } from '../components/Attachments.js'
 import { useAutoSize } from '../components/useAutoSize.js'
 import { SlotMeter } from '../components/SlotMeter.js'
 
-export function Chat(): React.JSX.Element {
+export function Chat({ onConfigureTools }: { onConfigureTools: () => void }): React.JSX.Element {
   const active = useChatStore(activeConversation)
   const streaming = useChatStore((s) => (s.activeId ? isStreaming(s, s.activeId) : false))
   const streamingMessageId = useChatStore((s) =>
@@ -127,7 +127,7 @@ export function Chat(): React.JSX.Element {
           </button>
         </header>
 
-        {showSettings && <ChatSettings />}
+        {showSettings && <ChatSettings onConfigureTools={onConfigureTools} />}
 
         {busyElsewhere > 0 && (
           <p className="border-b border-edge bg-ink/40 px-4 py-1.5 text-[11px] text-muted">

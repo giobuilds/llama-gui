@@ -10,6 +10,7 @@ import { subscribeToDownloads, useDownloadStore } from './state/downloadStore.js
 import { subscribeToBench } from './state/benchStore.js'
 import { FlagReference } from './components/FlagReference.js'
 import { ContextMenu } from './components/ContextMenu.js'
+import { ToolSettings } from './components/ToolSettings.js'
 import { StatusBadge } from './components/StatusBadge.js'
 
 type Tab = 'chat' | 'server' | 'models' | 'tuning'
@@ -19,6 +20,7 @@ export default function App(): React.JSX.Element {
   const status = useServerStore((s) => s.status)
   const [tab, setTab] = useState<Tab>('chat')
   const [showFlags, setShowFlags] = useState(false)
+  const [showTools, setShowTools] = useState(false)
 
   const activeDownloads = useDownloadStore(
     (s) => s.jobs.filter((j) => j.state === 'running' || j.state === 'queued').length
@@ -39,6 +41,7 @@ export default function App(): React.JSX.Element {
         case 'tab:models': setTab('models'); break
         case 'tab:tuning': setTab('tuning'); break
         case 'help:flags': setShowFlags(true); break
+        case 'tools:configure': setShowTools(true); break
         case 'chat:new':
           setTab('chat')
           void useChatStore.getState().create()
@@ -115,7 +118,7 @@ export default function App(): React.JSX.Element {
 
       <main className="min-h-0 flex-1">
         {tab === 'chat' ? (
-          <Chat />
+          <Chat onConfigureTools={() => setShowTools(true)} />
         ) : tab === 'models' ? (
           <Downloads />
         ) : tab === 'tuning' ? (
@@ -140,6 +143,7 @@ export default function App(): React.JSX.Element {
       </main>
 
       {showFlags && <FlagReference onClose={() => setShowFlags(false)} />}
+      {showTools && <ToolSettings onClose={() => setShowTools(false)} />}
       <ContextMenu />
     </div>
   )

@@ -21,6 +21,9 @@ import type {
   LaunchConfig,
   LogLine,
   ModelEntryView,
+  McpServerConfig,
+  McpServerState,
+  McpSnapshot,
   ToolDefinition,
   ToolResult,
   ServerStatus,
@@ -119,6 +122,16 @@ const api = {
     get: (modelPath: string) => invoke<LaunchProfileView | null>(IPC.profileGet, modelPath),
     list: () => invoke<LaunchProfileView[]>(IPC.profileList),
     forget: (modelPath: string) => invoke<null>(IPC.profileForget, modelPath)
+  },
+  mcp: {
+    list: () => invoke<McpSnapshot>(IPC.mcpList),
+    save: (servers: McpServerConfig[]) => invoke<McpSnapshot>(IPC.mcpSave, servers),
+    onChanged: (cb: (snap: McpSnapshot) => void) => subscribe<McpSnapshot>(IPC.mcpChanged, cb)
+  },
+  search: {
+    /** A SearXNG instance to use instead of the default engine. */
+    getBackend: () => invoke<string>(IPC.searchBackendGet),
+    setBackend: (url: string) => invoke<string>(IPC.searchBackendSet, url)
   },
   tools: {
     list: () => invoke<ToolDefinition[]>(IPC.toolsList),

@@ -18,6 +18,8 @@ import type {
   IpcResponse,
   LogLine,
   ModelEntryView,
+  McpServerState,
+  McpSnapshot,
   ToolDefinition,
   ToolResult,
   ServerStatus,
@@ -45,10 +47,16 @@ import { activeParameters, type MachineProfile } from './speed.js'
 import { derive } from './calibration.js'
 import { totalmem } from 'node:os'
 import { BenchRunner } from './bench.js'
-import { BUILT_IN_TOOLS, runTool } from './tools.js'
+import { BUILT_IN_TOOLS, runTool, setSearxngUrl } from './tools.js'
+import type { McpRegistry } from './mcpRegistry.js'
 import { benchRequestSchema } from '@shared/schema.js'
 import { downloadRequestSchema } from '@shared/schema.js'
-import { planRequestSchema, healthCheckRequestSchema, toolRunSchema } from '@shared/schema.js'
+import {
+  planRequestSchema,
+  healthCheckRequestSchema,
+  toolRunSchema,
+  mcpServersSchema
+} from '@shared/schema.js'
 import type { SettingsStore } from './settings.js'
 
 /** Wrap a handler so a thrown error becomes a typed failure instead of an opaque IPC rejection. */
@@ -80,6 +88,7 @@ export function registerIpc(
   settings: SettingsStore,
   conversations: ConversationStore,
   profiles: ProfileStore,
+  mcp: McpRegistry,
   downloads: DownloadManager,
   /** Every llama.cpp install found at startup, best first. */
   discovered: BinaryInfo[]
@@ -418,12 +427,31 @@ export function registerIpc(
     return null
   })
 
-  handle<ToolDefinition[]>(IPC.toolsList, () => BUILT_IN_TOOLS)
+  // Built-in and MCP tools are one list: the model cannot tell them apart, and
+  // the only thing that differs for the user is where a tool came from.
+  handle<ToolDefinition[]>(IPC.toolsList, () => [...BUILT_IN_TOOLS, ...mcp.tools()])
+
+  handle<McpSnapshot>(IPC.mcpList, () => snapshot())
+  handle<McpSnapshot>(IPC.mcpSave, async (raw) => {
+    await mcp.apply(mcpServersSchema.parse(raw))
+    return snapshot()
+  })
+  const snapshot = (): McpSnapshot => ({ configs: mcp.configs(), states: mcp.states() })
+
+  handle<string>(IPC.searchBackendGet, () => settings.current.searxngUrl)
+  handle<string>(IPC.searchBackendSet, async (raw) => {
+    const url = String(raw ?? '').trim()
+    if (url && !/^https?:\/\//i.test(url)) throw new Error('Enter a full http or https address.')
+    await settings.patch({ searxngUrl: url })
+    setSearxngUrl(url)
+    return url
+  })
   handle<ToolResult>(IPC.toolsRun, async (raw) => {
     const req = toolRunSchema.parse(raw)
-    // Tools reach the network, which the renderer deliberately cannot: its CSP
-    // allows loopback only, and a page that renders model output is the wrong
-    // place to be fetching arbitrary sites from.
+    // Tools reach the network and spawn subprocesses, neither of which the
+    // renderer can do: its CSP allows loopback only, and a page that renders
+    // model output is the wrong place for either.
+    if (mcp.owns(req.name)) return mcp.call(req.name, req.args)
     return runTool(req.name, req.args)
   })
 
@@ -454,9 +482,14 @@ export function registerIpc(
 
 /** Set by wireEvents so handlers registered earlier can broadcast. */
 let broadcastBench: (run: BenchRunView) => void = () => {}
+let broadcastMcp: (snap: McpSnapshot) => void = () => {}
 
 /** Push status and log-availability events to every open window. */
-export function wireEvents(supervisor: ServerSupervisor, downloads: DownloadManager): void {
+export function wireEvents(
+  supervisor: ServerSupervisor,
+  downloads: DownloadManager,
+  mcp: McpRegistry
+): void {
   const broadcast = (channel: string, payload?: unknown): void => {
     for (const win of BrowserWindow.getAllWindows()) {
       if (!win.isDestroyed()) win.webContents.send(channel, payload)
@@ -465,6 +498,9 @@ export function wireEvents(supervisor: ServerSupervisor, downloads: DownloadMana
 
   supervisor.on('status', (status) => broadcast(IPC.serverStatusChanged, status))
   downloads.on('update', (job) => broadcast(IPC.downloadChanged, job))
+  broadcastMcp = (snap) => broadcast(IPC.mcpChanged, snap)
+  // A server that starts, fails or is stopped changes which tools exist.
+  mcp.on('state', () => broadcastMcp({ configs: mcp.configs(), states: mcp.states() }))
   broadcastBench = (run) => broadcast(IPC.benchChanged, run)
 
   // llama-server can emit hundreds of lines per second; coalesce the "there is
