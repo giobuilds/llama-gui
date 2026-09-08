@@ -119,6 +119,12 @@ export interface ServerStatus {
    * Null until then, since it cannot be known before the model loads.
    */
   modalities: { vision: boolean; audio: boolean; video: boolean } | null
+  /**
+   * Whether the loaded model's chat template can express tool calls. Enabling
+   * tools against a template that cannot is silently useless, so it is read
+   * from the server rather than assumed.
+   */
+  supportsTools: boolean
 }
 
 export type LogStream = 'stdout' | 'stderr' | 'app'
@@ -286,6 +292,50 @@ export interface BenchResult {
   buildCommit: string
 }
 
+/** A tool the model may call, as the UI lists it and the API declares it. */
+export interface ToolDefinition {
+  name: string
+  /** Short name for the settings list. */
+  label: string
+  description: string
+  parameters: {
+    type: 'object'
+    properties: Record<string, { type: string; description?: string }>
+    required?: string[]
+  }
+}
+
+export interface ToolSource {
+  title: string
+  url: string
+}
+
+export interface ToolResult {
+  ok: boolean
+  /**
+   * One line describing what happened, kept in the conversation after the full
+   * content has been dropped — otherwise every later turn re-sends every page
+   * ever fetched and the context fills with history nobody is reading.
+   */
+  summary: string
+  content: string
+  sources?: ToolSource[]
+}
+
+/** A tool call as it appears in a conversation. */
+export interface ToolCallView {
+  id: string
+  name: string
+  argumentsJson: string
+  summary?: string
+  ok?: boolean
+  sources?: ToolSource[]
+  /** Full result text, dropped once the model has answered from it. */
+  content?: string
+  /** Roughly how many tokens the full result occupied. */
+  approxTokens?: number
+}
+
 /**
  * A right-click, as the renderer needs to draw it.
  *
@@ -450,6 +500,8 @@ export interface ChatMessageView {
   content: string
   /** Data URLs for images attached to a user turn. */
   images?: string[]
+  /** Tool calls the assistant made on this turn, with what came back. */
+  toolCalls?: ToolCallView[]
   createdAt: number
   model?: string
   tokensPerSecond?: number

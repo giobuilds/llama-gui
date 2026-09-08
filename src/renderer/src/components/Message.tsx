@@ -2,6 +2,7 @@ import { useMemo, useRef, useState } from 'react'
 import { useAutoSize } from './useAutoSize.js'
 import type { ChatMessageView } from '@shared/types.js'
 import { renderMarkdown } from '../api/markdown.js'
+import { ToolCalls } from './ToolCalls.js'
 
 /**
  * One turn. Assistant content is markdown-rendered (and sanitised in
@@ -126,6 +127,10 @@ export function Message({
                 </pre>
               )}
             </div>
+          )}
+
+          {message.toolCalls && message.toolCalls.length > 0 && (
+            <ToolCalls calls={message.toolCalls} />
           )}
 
           {message.images && message.images.length > 0 && (

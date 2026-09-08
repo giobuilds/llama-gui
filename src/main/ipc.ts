@@ -18,6 +18,8 @@ import type {
   IpcResponse,
   LogLine,
   ModelEntryView,
+  ToolDefinition,
+  ToolResult,
   ServerStatus,
   VramPlanView
 } from '@shared/types.js'
@@ -43,9 +45,10 @@ import { activeParameters, type MachineProfile } from './speed.js'
 import { derive } from './calibration.js'
 import { totalmem } from 'node:os'
 import { BenchRunner } from './bench.js'
+import { BUILT_IN_TOOLS, runTool } from './tools.js'
 import { benchRequestSchema } from '@shared/schema.js'
 import { downloadRequestSchema } from '@shared/schema.js'
-import { planRequestSchema, healthCheckRequestSchema } from '@shared/schema.js'
+import { planRequestSchema, healthCheckRequestSchema, toolRunSchema } from '@shared/schema.js'
 import type { SettingsStore } from './settings.js'
 
 /** Wrap a handler so a thrown error becomes a typed failure instead of an opaque IPC rejection. */
@@ -413,6 +416,15 @@ export function registerIpc(
   handle<null>(IPC.profileForget, async (modelPath) => {
     await profiles.forget(String(modelPath ?? ''))
     return null
+  })
+
+  handle<ToolDefinition[]>(IPC.toolsList, () => BUILT_IN_TOOLS)
+  handle<ToolResult>(IPC.toolsRun, async (raw) => {
+    const req = toolRunSchema.parse(raw)
+    // Tools reach the network, which the renderer deliberately cannot: its CSP
+    // allows loopback only, and a page that renders model output is the wrong
+    // place to be fetching arbitrary sites from.
+    return runTool(req.name, req.args)
   })
 
   handle<ConversationSummaryView[]>(IPC.chatList, () => conversations.list())

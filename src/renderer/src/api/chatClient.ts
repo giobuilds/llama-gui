@@ -9,19 +9,34 @@ import type { ChatSettingsView } from '@shared/types.js'
  * which the CSP allows.
  */
 
+/** A tool call assembled from the stream's fragments. */
+export interface StreamedToolCall {
+  id: string
+  name: string
+  argumentsJson: string
+}
+
 export interface StreamCallbacks {
   onDelta: (text: string) => void
   /** Reasoning models emit thinking separately from the answer. */
   onReasoning?: (text: string) => void
-  onDone: (info: { tokensPerSecond: number | null; model: string | null }) => void
+  onDone: (info: {
+    tokensPerSecond: number | null
+    model: string | null
+    toolCalls: StreamedToolCall[]
+  }) => void
   onError: (message: string) => void
 }
 
 export interface ChatTurn {
-  role: 'system' | 'user' | 'assistant'
+  role: 'system' | 'user' | 'assistant' | 'tool'
   content: string
   /** Data URLs; only meaningful on a user turn against a vision model. */
   images?: string[]
+  /** Set on an assistant turn that called tools. */
+  toolCalls?: StreamedToolCall[]
+  /** Set on a tool turn, tying the result to the call that asked for it. */
+  toolCallId?: string
 }
 
 /**
@@ -29,7 +44,21 @@ export interface ChatTurn {
  * becomes an array of parts rather than a bare string. Text-only turns stay
  * strings, which keeps requests identical to before for non-vision models.
  */
-function encodeTurn(turn: ChatTurn): { role: string; content: unknown } {
+function encodeTurn(turn: ChatTurn): Record<string, unknown> {
+  if (turn.role === 'tool') {
+    return { role: 'tool', tool_call_id: turn.toolCallId, content: turn.content }
+  }
+  if (turn.toolCalls?.length) {
+    return {
+      role: turn.role,
+      content: turn.content,
+      tool_calls: turn.toolCalls.map((c) => ({
+        id: c.id,
+        type: 'function',
+        function: { name: c.name, arguments: c.argumentsJson }
+      }))
+    }
+  }
   if (!turn.images?.length) return { role: turn.role, content: turn.content }
   return {
     role: turn.role,
@@ -43,7 +72,18 @@ function encodeTurn(turn: ChatTurn): { role: string; content: unknown } {
 interface StreamChunk {
   model?: string
   choices?: Array<{
-    delta?: { content?: string | null; reasoning_content?: string | null }
+    delta?: {
+      content?: string | null
+      reasoning_content?: string | null
+      // Tool calls arrive in fragments like content does: an index identifies
+      // which call a fragment belongs to, and the arguments accumulate as a
+      // string that is only valid JSON once complete.
+      tool_calls?: Array<{
+        index?: number
+        id?: string
+        function?: { name?: string; arguments?: string }
+      }>
+    }
     finish_reason?: string | null
   }>
   timings?: { predicted_per_second?: number }
@@ -55,7 +95,9 @@ export async function streamChat(
   messages: ChatTurn[],
   settings: ChatSettingsView,
   signal: AbortSignal,
-  cb: StreamCallbacks
+  cb: StreamCallbacks,
+  /** Sent only when tools are enabled; each definition costs tokens every time. */
+  tools?: unknown[]
 ): Promise<void> {
   let res: Response
   try {
@@ -73,7 +115,8 @@ export async function streamChat(
         top_k: settings.topK,
         min_p: settings.minP,
         repeat_penalty: settings.repeatPenalty,
-        ...(settings.maxTokens > 0 ? { max_tokens: settings.maxTokens } : {})
+        ...(settings.maxTokens > 0 ? { max_tokens: settings.maxTokens } : {}),
+        ...(tools && tools.length > 0 ? { tools, tool_choice: 'auto' } : {})
       })
     })
   } catch (err) {
@@ -92,6 +135,7 @@ export async function streamChat(
   let buffer = ''
   let tokensPerSecond: number | null = null
   let model: string | null = null
+  const toolCalls = new Map<number, StreamedToolCall>()
 
   try {
     for (;;) {
@@ -126,14 +170,23 @@ export async function streamChat(
           const delta = chunk.choices?.[0]?.delta
           if (delta?.reasoning_content) cb.onReasoning?.(delta.reasoning_content)
           if (delta?.content) cb.onDelta(delta.content)
+          for (const fragment of delta?.tool_calls ?? []) {
+            const index = fragment.index ?? 0
+            const existing = toolCalls.get(index) ?? { id: '', name: '', argumentsJson: '' }
+            toolCalls.set(index, {
+              id: fragment.id ?? existing.id,
+              name: fragment.function?.name ?? existing.name,
+              argumentsJson: existing.argumentsJson + (fragment.function?.arguments ?? '')
+            })
+          }
         }
       }
     }
-    cb.onDone({ tokensPerSecond, model })
+    cb.onDone({ tokensPerSecond, model, toolCalls: [...toolCalls.values()] })
   } catch (err) {
     // An abort is a user action, not a failure: the partial reply is kept.
     if (signal.aborted) {
-      cb.onDone({ tokensPerSecond, model })
+      cb.onDone({ tokensPerSecond, model, toolCalls: [...toolCalls.values()] })
       return
     }
     cb.onError(`Stream interrupted: ${(err as Error).message}`)

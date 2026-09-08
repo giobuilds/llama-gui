@@ -31,6 +31,25 @@ export const messageSchema = z.object({
    * The trade-off is size, so the UI caps what it will attach.
    */
   images: z.array(z.string()).optional(),
+  /**
+   * Tools this turn called, with a one-line summary of each result. The full
+   * result text is kept only for the most recent turn — older ones would be
+   * re-sent on every message and fill the context with pages nobody reads.
+   */
+  toolCalls: z
+    .array(
+      z.object({
+        id: z.string(),
+        name: z.string(),
+        argumentsJson: z.string(),
+        summary: z.string().optional(),
+        ok: z.boolean().optional(),
+        sources: z.array(z.object({ title: z.string(), url: z.string() })).optional(),
+        content: z.string().optional(),
+        approxTokens: z.number().optional()
+      })
+    )
+    .optional(),
   /** Set when generation was cut short, so a partial reply is not mistaken for a complete one. */
   stopped: z.boolean().optional(),
   error: z.string().optional()

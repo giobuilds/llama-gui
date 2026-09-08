@@ -5,7 +5,8 @@ import type {
   ConversationSummaryView,
   ConversationView
 } from '@shared/types.js'
-import { streamChat, type ChatTurn } from '../api/chatClient.js'
+import { streamChat, type ChatTurn, type StreamedToolCall } from '../api/chatClient.js'
+import type { ToolCallView, ToolDefinition } from '@shared/types.js'
 import { useServerStore } from './serverStore.js'
 
 const DEFAULT_SETTINGS: ChatSettingsView = {
@@ -23,6 +24,25 @@ interface ActiveStream {
   messageId: string
 }
 
+/**
+ * How many rounds of tool use one message may take.
+ *
+ * A model that searches, reads a page, then searches again is behaving
+ * reasonably. One that does it twenty times is stuck, and every round costs both
+ * context and time, so the loop stops and lets it answer with what it has.
+ */
+const MAX_TOOL_ROUNDS = 4
+
+/**
+ * Full tool output is dropped from history once the model has answered from it.
+ *
+ * Keeping it would mean every later turn re-sends every page ever fetched: at
+ * roughly 1,300 tokens a page, a handful of searches would fill a conversation's
+ * whole context with material nobody is reading. The one-line summary and the
+ * sources stay, so the conversation still records what was consulted.
+ */
+const KEEP_FULL_RESULTS_FOR_TURNS = 1
+
 interface ChatState {
   conversations: ConversationSummaryView[]
   /**
@@ -34,9 +54,14 @@ interface ChatState {
   activeId: string | null
   /** Keyed by conversation id, so several chats can generate at once. */
   streams: Record<string, ActiveStream>
+  /** Tools the model may call, and which of them are switched on. */
+  availableTools: ToolDefinition[]
+  enabledTools: string[]
   error: string | null
 
   load: () => Promise<void>
+  loadTools: () => Promise<void>
+  toggleTool: (name: string) => void
   open: (id: string) => Promise<void>
   create: () => Promise<void>
   remove: (id: string) => Promise<void>
@@ -67,11 +92,27 @@ export const useChatStore = create<ChatState>((set, get) => ({
   byId: {},
   activeId: null,
   streams: {},
+  availableTools: [],
+  enabledTools: [],
   error: null,
+
+  async loadTools() {
+    try {
+      set({ availableTools: await window.llama.tools.list() })
+    } catch {
+      // Without tools the app simply cannot search; nothing else breaks.
+    }
+  },
+
+  toggleTool(name) {
+    const on = get().enabledTools
+    set({ enabledTools: on.includes(name) ? on.filter((t) => t !== name) : [...on, name] })
+  },
 
   async load() {
     const conversations = await window.llama.chat.list()
     set({ conversations })
+    void get().loadTools()
     if (!get().activeId && conversations[0]) await get().open(conversations[0].id)
   },
 
@@ -238,6 +279,66 @@ export const useChatStore = create<ChatState>((set, get) => ({
   }
 }))
 
+/**
+ * Turn a stored conversation into the messages sent to the model.
+ *
+ * Tool output older than the most recent turn is replaced by its one-line
+ * summary. The model has already answered from the full text; re-sending it on
+ * every later message would fill the context with pages nobody is reading.
+ */
+export function buildTurns(conversation: ConversationView): ChatTurn[] {
+  const turns: ChatTurn[] = []
+  if (conversation.systemPrompt.trim()) {
+    turns.push({ role: 'system', content: conversation.systemPrompt })
+  }
+
+  const assistantTurns = conversation.messages.filter((m) => m.role === 'assistant')
+  const recent = new Set(
+    assistantTurns.slice(-KEEP_FULL_RESULTS_FOR_TURNS).map((m) => m.id)
+  )
+
+  for (const m of conversation.messages) {
+    if (m.role === 'system') continue
+    if (m.role === 'assistant' && m.toolCalls?.length) {
+      const keepFull = recent.has(m.id)
+      const note = m.toolCalls
+        .map((c) =>
+          keepFull && c.content
+            ? `${c.summary ?? c.name}\n${c.content}`
+            : (c.summary ?? `${c.name} was used`)
+        )
+        .join('\n\n')
+      // Folded into the assistant's own turn, so the transcript stays a plain
+      // alternation and no orphaned tool messages are sent.
+      turns.push({ role: 'assistant', content: [note, m.content].filter(Boolean).join('\n\n') })
+      continue
+    }
+    turns.push({ role: m.role, content: m.content, ...(m.images?.length ? { images: m.images } : {}) })
+  }
+  return turns
+}
+
+/** Arguments come from model output, so a malformed object is handled, not thrown. */
+async function runToolCall(
+  call: StreamedToolCall
+): Promise<{ ok: boolean; summary: string; content: string; sources?: ToolCallView['sources'] }> {
+  let args: Record<string, unknown> = {}
+  try {
+    args = call.argumentsJson ? (JSON.parse(call.argumentsJson) as Record<string, unknown>) : {}
+  } catch {
+    return {
+      ok: false,
+      summary: `${call.name}: arguments could not be read`,
+      content: 'The arguments were not valid JSON. Try the call again with simpler arguments.'
+    }
+  }
+  try {
+    return await window.llama.tools.run(call.name, args)
+  } catch (err) {
+    return { ok: false, summary: `${call.name} failed`, content: (err as Error).message }
+  }
+}
+
 type Setter = (partial: Partial<ChatState>) => void
 type Getter = () => ChatState
 
@@ -288,14 +389,7 @@ async function runCompletion(conversationId: string, set: Setter, get: Getter): 
   }
   const baseUrl = `http://127.0.0.1:${status.port}`
 
-  const turns: ChatTurn[] = []
-  if (conversation.systemPrompt.trim()) {
-    turns.push({ role: 'system', content: conversation.systemPrompt })
-  }
-  for (const m of conversation.messages) {
-    if (m.role === 'system') continue
-    turns.push({ role: m.role, content: m.content, ...(m.images?.length ? { images: m.images } : {}) })
-  }
+  const turns = buildTurns(conversation)
 
   const reply: ChatMessageView = {
     id: newId(),
@@ -313,6 +407,7 @@ async function runCompletion(conversationId: string, set: Setter, get: Getter): 
 
   let content = ''
   let reasoning = ''
+  const toolCalls: ToolCallView[] = []
   const apply = (patch: Partial<ChatMessageView>): void => {
     const current = get().byId[conversationId]
     if (!current) return
@@ -322,30 +417,86 @@ async function runCompletion(conversationId: string, set: Setter, get: Getter): 
     })
   }
 
+  // Only the tools the user switched on are declared, because every definition
+  // is sent with every request whether or not it is used.
+  const enabled = get().availableTools.filter((t) => get().enabledTools.includes(t.name))
+  const toolSpec = enabled.map((t) => ({
+    type: 'function',
+    function: { name: t.name, description: t.description, parameters: t.parameters }
+  }))
+
   try {
-    await streamChat(baseUrl, turns, conversation.settings ?? DEFAULT_SETTINGS, abort.signal, {
-      onDelta: (text) => {
-        content += text
-        apply({ content })
-      },
-      onReasoning: (text) => {
-        reasoning += text
-        apply({ reasoning })
-      },
-      onDone: ({ tokensPerSecond, model }) => {
-        apply({
-          content,
-          reasoning: reasoning || undefined,
-          tokensPerSecond: tokensPerSecond ?? undefined,
-          model: model ?? undefined,
-          stopped: abort.signal.aborted || undefined
-        })
-      },
-      onError: (message) => {
-        apply({ content, error: message })
-        set({ error: message })
+    for (let round = 0; round <= MAX_TOOL_ROUNDS; round++) {
+      let requested: StreamedToolCall[] = []
+      let failed = false
+
+      await streamChat(
+        baseUrl,
+        turns,
+        conversation.settings ?? DEFAULT_SETTINGS,
+        abort.signal,
+        {
+          onDelta: (text) => {
+            content += text
+            apply({ content })
+          },
+          onReasoning: (text) => {
+            reasoning += text
+            apply({ reasoning })
+          },
+          onDone: ({ tokensPerSecond, model, toolCalls: calls }) => {
+            requested = calls.filter((c) => c.name)
+            apply({
+              content,
+              reasoning: reasoning || undefined,
+              tokensPerSecond: tokensPerSecond ?? undefined,
+              model: model ?? undefined,
+              stopped: abort.signal.aborted || undefined
+            })
+          },
+          onError: (message) => {
+            failed = true
+            apply({ content, error: message })
+            set({ error: message })
+          }
+        },
+        toolSpec.length > 0 ? toolSpec : undefined
+      )
+
+      if (failed || abort.signal.aborted || requested.length === 0) break
+
+      if (round === MAX_TOOL_ROUNDS) {
+        // Out of rounds: say so in the conversation rather than looping on.
+        apply({ content: content || '', error: 'Stopped after too many tool calls.' })
+        break
       }
-    })
+
+      // Show the calls before running them, so a slow search is visible.
+      for (const call of requested) {
+        toolCalls.push({ id: call.id, name: call.name, argumentsJson: call.argumentsJson })
+      }
+      apply({ toolCalls: [...toolCalls] })
+
+      turns.push({ role: 'assistant', content, toolCalls: requested })
+
+      for (const call of requested) {
+        const result = await runToolCall(call)
+        const entry = toolCalls.find((t) => t.id === call.id)
+        if (entry) {
+          entry.summary = result.summary
+          entry.ok = result.ok
+          entry.sources = result.sources
+          entry.content = result.content
+          entry.approxTokens = Math.ceil(result.content.length / 4)
+        }
+        apply({ toolCalls: [...toolCalls] })
+        turns.push({ role: 'tool', toolCallId: call.id, content: result.content })
+      }
+
+      // The next round continues the same reply rather than starting a new one.
+      content = ''
+      reasoning = ''
+    }
   } finally {
     const { [conversationId]: _done, ...remaining } = get().streams
     set({ streams: remaining })
