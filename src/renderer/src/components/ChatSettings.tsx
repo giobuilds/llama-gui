@@ -9,7 +9,7 @@ import { useServerStore } from '../state/serverStore.js'
  * roughly 50 tokens each on this machine. The running cost is shown so the
  * trade is visible at the point of making it.
  */
-function ToolToggles(): React.JSX.Element | null {
+function ToolToggles({ onConfigure }: { onConfigure: () => void }): React.JSX.Element | null {
   const tools = useChatStore((s) => s.availableTools)
   const enabled = useChatStore((s) => s.enabledTools)
   const toggle = useChatStore((s) => s.toggleTool)
@@ -30,6 +30,13 @@ function ToolToggles(): React.JSX.Element | null {
             ~{cost} tokens per message
           </span>
         )}
+        <button
+          type="button"
+          onClick={onConfigure}
+          className="ml-auto text-[11px] text-muted hover:text-slate-200"
+        >
+          Configure…
+        </button>
       </div>
 
       {!canCall && (
@@ -63,7 +70,11 @@ function ToolToggles(): React.JSX.Element | null {
  * conversation rather than globally, so reopening an old chat reproduces the
  * conditions it was created under.
  */
-export function ChatSettings(): React.JSX.Element | null {
+export function ChatSettings({
+  onConfigureTools
+}: {
+  onConfigureTools: () => void
+}): React.JSX.Element | null {
   const active = useChatStore(activeConversation)
   const setSettings = useChatStore((s) => s.setSettings)
   const setSystemPrompt = useChatStore((s) => s.setSystemPrompt)
@@ -73,7 +84,7 @@ export function ChatSettings(): React.JSX.Element | null {
   return (
     <div className="border-b border-edge bg-panel/60 p-3">
       <div className="mx-auto max-w-3xl space-y-3">
-        <ToolToggles />
+        <ToolToggles onConfigure={onConfigureTools} />
 
         <label className="block">
           <span className="text-[11px] font-medium text-muted">System prompt</span>

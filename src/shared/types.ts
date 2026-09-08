@@ -292,6 +292,35 @@ export interface BenchResult {
   buildCommit: string
 }
 
+/** A Model Context Protocol server, as configured by the user. */
+export interface McpServerConfig {
+  /** Short identifier, also used to namespace this server's tool names. */
+  id: string
+  name: string
+  command: string
+  args: string[]
+  env?: Record<string, string>
+  enabled: boolean
+}
+
+export interface McpServerState {
+  id: string
+  name: string
+  status: 'stopped' | 'starting' | 'ready' | 'failed'
+  error: string | null
+  tools: ToolDefinition[]
+  /** What the server calls itself, which may differ from the configured name. */
+  serverName: string | null
+  /** Recent stderr, where these servers report their problems. */
+  log: string[]
+}
+
+/** Configuration and live state together, so the editor never shows one without the other. */
+export interface McpSnapshot {
+  configs: McpServerConfig[]
+  states: McpServerState[]
+}
+
 /** A tool the model may call, as the UI lists it and the API declares it. */
 export interface ToolDefinition {
   name: string

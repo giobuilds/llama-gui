@@ -8,6 +8,8 @@ import { ConversationStore } from './conversations.js'
 import { ProfileStore } from './profiles.js'
 import { recordSuccessfulLaunches } from './profileRecorder.js'
 import { DownloadManager } from './downloads.js'
+import { McpRegistry } from './mcpRegistry.js'
+import { setSearxngUrl } from './tools.js'
 import { registerIpc, wireEvents } from './ipc.js'
 import { buildAppMenu } from './menu.js'
 import { migrateLegacyUserData } from './migrate.js'
@@ -18,6 +20,7 @@ const dirname = fileURLToPath(new URL('.', import.meta.url))
 
 let supervisor: ServerSupervisor | null = null
 let downloads: DownloadManager | null = null
+let mcp: McpRegistry | null = null
 
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
@@ -138,8 +141,16 @@ async function bootstrap(): Promise<void> {
     }
   )
   downloads.restore(settings.current.downloadHistory)
-  registerIpc(supervisor, settings, conversations, profiles, downloads, discovered)
-  wireEvents(supervisor, downloads)
+
+  // Servers the user configured last time are brought back up before the window
+  // opens, so their tools are listed as soon as the chat is usable.
+  mcp = new McpRegistry((configs) => {
+    void settings.patch({ mcpServers: configs })
+  })
+  setSearxngUrl(settings.current.searxngUrl)
+  void mcp.apply(settings.current.mcpServers)
+  registerIpc(supervisor, settings, conversations, profiles, mcp, downloads, discovered)
+  wireEvents(supervisor, downloads, mcp)
   await supervisor.adoptOrReap()
 
   registerContextMenuCommands()
@@ -172,10 +183,14 @@ if (!app.requestSingleInstanceLock()) {
   // Do not let the app exit while a child llama-server is still alive.
   let quitting = false
   app.on('before-quit', (event) => {
-    if (quitting || !supervisor || supervisor.status.pid === null) return
-    event.preventDefault()
+    if (quitting) return
     quitting = true
+    // Every child has to be stopped whether or not a llama-server is among
+    // them: MCP servers are spawned detached, so nothing else would reap them.
     downloads?.shutdown()
+    mcp?.shutdown()
+    if (!supervisor || supervisor.status.pid === null) return
+    event.preventDefault()
     void supervisor.shutdown().finally(() => app.quit())
   })
 }

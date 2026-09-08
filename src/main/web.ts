@@ -90,6 +90,45 @@ let lastRequestAt = 0
 
 const delay = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
+/**
+ * Search through a SearXNG instance instead of the default engine.
+ *
+ * SearXNG aggregates other engines and, on an instance you run yourself,
+ * imposes no rate limit — which is the default's real weakness. Most public
+ * instances disable this JSON API precisely because it is easy to abuse, so
+ * this is worth configuring only if you host one.
+ */
+export async function searchSearxng(
+  instanceUrl: string,
+  query: string,
+  limits = DEFAULT_LIMITS
+): Promise<SearchResult[]> {
+  const base = instanceUrl.replace(/\/+$/, '')
+  const url = base + '/search?' + new URLSearchParams({ q: query, format: 'json' }).toString()
+  const res = await fetch(url, {
+    headers: { 'user-agent': UA, accept: 'application/json' },
+    signal: AbortSignal.timeout(limits.timeoutMs)
+  })
+  if (!res.ok) throw new Error('The SearXNG instance returned HTTP ' + res.status + '.')
+
+  const type = res.headers.get('content-type') ?? ''
+  if (!type.includes('json')) {
+    // An instance with the JSON API switched off answers with its search page,
+    // which is a configuration problem worth naming rather than a parse error.
+    throw new Error('That instance did not return JSON. Enable the json format in its settings.')
+  }
+
+  const body = (await res.json()) as { results?: Array<{ title?: string; url?: string; content?: string }> }
+  return (body.results ?? [])
+    .filter((r) => typeof r.url === 'string' && /^https?:/i.test(r.url))
+    .slice(0, limits.maxResults)
+    .map((r) => ({
+      title: (r.title ?? '').slice(0, 160),
+      url: r.url!,
+      snippet: (r.content ?? '').slice(0, limits.snippetChars)
+    }))
+}
+
 export async function searchWeb(query: string, limits = DEFAULT_LIMITS): Promise<SearchResult[]> {
   const key = query.trim().toLowerCase()
   const hit = cache.get(key)

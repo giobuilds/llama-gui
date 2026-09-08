@@ -52,6 +52,23 @@ export const benchRequestSchema = z.object({
  * The arguments come from model output, so they are shape-checked before
  * anything acts on them rather than trusted because a model produced them.
  */
+/**
+ * MCP server configurations from the renderer.
+ *
+ * These become spawned subprocesses, so the shape is checked rather than
+ * trusted: the id in particular namespaces tool names.
+ */
+export const mcpServersSchema = z.array(
+  z.object({
+    id: z.string().min(1).max(40).regex(new RegExp('^[a-z0-9-]+$'), 'lowercase letters, digits and dashes only'),
+    name: z.string().min(1).max(80),
+    command: z.string().min(1).max(200),
+    args: z.array(z.string().max(400)).max(40).default([]),
+    env: z.record(z.string(), z.string()).optional(),
+    enabled: z.boolean().default(false)
+  })
+).max(20)
+
 export const toolRunSchema = z.object({
   name: z.string().min(1).max(64),
   args: z.record(z.string(), z.unknown()).default({})

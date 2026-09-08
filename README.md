@@ -46,6 +46,14 @@ extract was not enough. Older results are replaced by a one-line summary once
 they have been used, which keeps a five-search conversation at about a fifth of
 what it would otherwise cost. Each enabled tool adds roughly 50 tokens to every
 message, so they are switched on individually and the running cost is shown.
+The default search engine rate-limits after a few queries in a row; point
+*File → Tools and MCP Servers* at a SearXNG instance you run to avoid that.
+
+**MCP servers** — any program that speaks the Model Context Protocol over stdin
+and stdout can supply more tools. Give Lowerbeam its command and it starts it,
+lists what it offers, and adds those tools to the same list chat picks from —
+the model cannot tell them apart from the built-in ones. Servers are stopped
+when the app quits and restarted when it opens.
 
 **Tuning** — benchmarks launch settings with `llama bench` and applies the
 fastest. Sampler settings aren't here on purpose: they don't change throughput.

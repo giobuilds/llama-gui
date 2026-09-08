@@ -8,6 +8,24 @@ const settingsSchema = z.object({
   calibration: calibrationSchema.default(EMPTY_CALIBRATION),
   /** Explicit llama.cpp binary chosen by the user, overriding auto-discovery. */
   binaryPath: z.string().optional(),
+  /** Model Context Protocol servers the user has configured. */
+  mcpServers: z
+    .array(
+      z.object({
+        id: z.string().min(1).max(40).regex(new RegExp('^[a-z0-9-]+$')),
+        name: z.string().min(1).max(80),
+        command: z.string().min(1).max(200),
+        args: z.array(z.string().max(400)).max(40).default([]),
+        env: z.record(z.string(), z.string()).optional(),
+        enabled: z.boolean().default(false)
+      })
+    )
+    .default([]),
+  /**
+   * A SearXNG instance to search through instead of the default engine.
+   * A self-hosted one has no rate limit, which the default very much does.
+   */
+  searxngUrl: z.string().max(300).default(''),
   /** Extra directories to scan for GGUF files, beyond the defaults. */
   modelDirs: z.array(z.string()).default([]),
   /**
@@ -38,7 +56,13 @@ const settingsSchema = z.object({
 export type Settings = z.infer<typeof settingsSchema>
 export type { Calibration }
 
-const DEFAULTS: Settings = { modelDirs: [], calibration: EMPTY_CALIBRATION, downloadHistory: [] }
+const DEFAULTS: Settings = {
+  modelDirs: [],
+  calibration: EMPTY_CALIBRATION,
+  downloadHistory: [],
+  mcpServers: [],
+  searxngUrl: ''
+}
 
 /** Small JSON-backed settings file. Corrupt or missing files fall back to defaults. */
 export class SettingsStore {
