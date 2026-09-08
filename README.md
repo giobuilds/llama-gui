@@ -1,6 +1,10 @@
-# llama-gui
+# Lowerbeam
 
 A desktop control panel for [llama.cpp](https://github.com/ggml-org/llama.cpp).
+
+Low beam is the dipped headlight: the one you use close to home, that lights the
+road in front of you without dazzling anyone. That is the idea here — models
+running on your own machine, under your own control, with nothing leaving it.
 
 llama.cpp ships a web UI, but it only appears *after* you have already started
 `llama-server` from a terminal with the right flags — and the flags are the hard
@@ -276,7 +280,7 @@ multi-slot KV figure matches llama.cpp exactly (192.00 MiB at `-c 16384
 ## Packaging
 
 `npm run dist` produces both an AppImage and an RPM in `dist/`. The AppImage
-runs standalone; the RPM installs to `/opt/llama-gui` with a desktop entry and
+runs standalone; the RPM installs to `/opt/Lowerbeam` with a desktop entry and
 icon, and its dependencies (gtk3, libnotify, libXtst and friends) are ordinary
 desktop packages.
 

@@ -1,5 +1,5 @@
-appId: dev.llamagui.app
-productName: llama-gui
+appId: dev.lowerbeam.app
+productName: Lowerbeam
 directories:
   output: dist
   buildResources: resources
@@ -13,7 +13,7 @@ linux:
   synopsis: Control panel for llama.cpp
   desktop:
     entry:
-      Name: llama-gui
+      Name: Lowerbeam
   target:
     - AppImage
     - rpm

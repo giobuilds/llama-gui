@@ -1,5 +1,5 @@
 {
-  "name": "llama-gui",
+  "name": "lowerbeam",
   "version": "0.1.0",
   "description": "Desktop control panel for llama.cpp: launch, tune, download and chat with local models",
   "main": "./out/main/index.js",
@@ -40,5 +40,6 @@
     "zod": "^4.5.4",
     "zustand": "^5.0.15"
   },
-  "desktopName": "llama-gui.desktop"
+  "desktopName": "lowerbeam.desktop",
+  "productName": "Lowerbeam"
 }

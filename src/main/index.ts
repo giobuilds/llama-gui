@@ -10,6 +10,7 @@ import { recordSuccessfulLaunches } from './profileRecorder.js'
 import { DownloadManager } from './downloads.js'
 import { registerIpc, wireEvents } from './ipc.js'
 import { buildAppMenu } from './menu.js'
+import { migrateLegacyUserData } from './migrate.js'
 import type { BinaryInfo } from '@shared/types.js'
 
 const dirname = fileURLToPath(new URL('.', import.meta.url))
@@ -25,7 +26,7 @@ function createWindow(): BrowserWindow {
     minHeight: 600,
     show: false,
     backgroundColor: '#0b0d12',
-    title: 'llama-gui',
+    title: 'Lowerbeam',
     webPreferences: {
       preload: join(dirname, '../preload/index.cjs'),
       contextIsolation: true,
@@ -76,6 +77,12 @@ function applyCsp(): void {
 
 async function bootstrap(): Promise<void> {
   applyCsp()
+
+  // Must happen before any store reads its file: the app was renamed, and
+  // Electron derives this directory from the application name, so without this
+  // every conversation, profile and measurement would look lost.
+  const migrated = await migrateLegacyUserData(app.getPath('userData'))
+  if (migrated) console.log(`carried settings across from ${migrated}`)
 
   const settings = new SettingsStore(join(app.getPath('userData'), 'settings.json'))
   await settings.load()

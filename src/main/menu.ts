@@ -12,7 +12,7 @@ import type { ServerSupervisor } from './supervisor.js'
  * binary they have installed, and this project's issue tracker — one click away.
  */
 
-const REPO = 'https://github.com/giobuilds/llama-gui'
+const REPO = 'https://github.com/giobuilds/lowerbeam'
 const LLAMA_CPP = 'https://github.com/ggml-org/llama.cpp'
 
 /** Menu items act by asking the renderer to do the thing the UI already does. */
