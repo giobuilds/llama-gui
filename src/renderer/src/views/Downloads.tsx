@@ -339,6 +339,29 @@ function FileRow({
   )
 }
 
+/**
+ * What became of a download, judged from the disk rather than from the record.
+ *
+ * A stored entry says what happened at the time. The file may since have been
+ * completed by another attempt, or deleted by hand, and saying "partial file
+ * kept" when nothing is kept sends someone looking for a file that is not there.
+ */
+function outcomeOf(job: DownloadJob): string {
+  if (job.state === 'done') {
+    return job.onDisk === false
+      ? 'Downloaded, but the file is no longer on disk'
+      : 'Ready to use — it is in your model list'
+  }
+  if (job.state === 'cancelled') {
+    if (job.onDisk) return 'Cancelled, but the file was downloaded later — it is in your model list'
+    if (job.partialBytes) {
+      return `Cancelled — ${mb(job.partialBytes)} kept on disk, downloading again resumes it`
+    }
+    return 'Cancelled — nothing was kept on disk'
+  }
+  return job.error ?? 'Failed'
+}
+
 function JobRow({ job, onCancel }: { job: DownloadJob; onCancel: () => void }): React.JSX.Element {
   const pct =
     job.expectedBytes > 0 ? Math.min(100, (job.receivedBytes / job.expectedBytes) * 100) : 0
@@ -383,13 +406,7 @@ function JobRow({ job, onCancel }: { job: DownloadJob; onCancel: () => void }): 
       )}
 
       {job.state !== 'running' && job.state !== 'queued' && (
-        <p className={`mt-1 text-[10px] ${tone}`}>
-          {job.state === 'done'
-            ? 'Ready to use — it is in your model list'
-            : job.state === 'cancelled'
-              ? 'Cancelled — partial file kept, downloading again resumes it'
-              : (job.error ?? 'Failed')}
-        </p>
+        <p className={`mt-1 text-[10px] ${tone}`}>{outcomeOf(job)}</p>
       )}
     </div>
   )

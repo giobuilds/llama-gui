@@ -331,6 +331,14 @@ export interface BenchRunView {
   error: string | null
   startedAt: number
   finishedAt: number | null
+  /**
+   * Bytes of a half-finished transfer still on disk, checked when the list is
+   * read rather than remembered — a later attempt may have completed the file,
+   * or it may have been deleted by hand.
+   */
+  partialBytes?: number
+  /** True when the finished file is present on disk. */
+  onDisk?: boolean
 }
 
 /** How well a model is expected to run on this machine. */
@@ -377,6 +385,14 @@ export interface DownloadJob {
   modelPath: string | null
   startedAt: number
   finishedAt: number | null
+  /**
+   * Bytes of a half-finished transfer still on disk, checked when the list is
+   * read rather than remembered — a later attempt may have completed the file,
+   * or it may have been deleted by hand.
+   */
+  partialBytes?: number
+  /** True when the finished file is present on disk. */
+  onDisk?: boolean
 }
 
 /** A remembered, known-good launch configuration for one model. */

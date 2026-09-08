@@ -274,7 +274,7 @@ export function registerIpc(
     return fits
   })
 
-  handle<DownloadJob[]>(IPC.downloadList, () => downloads.list())
+  handle<DownloadJob[]>(IPC.downloadList, () => downloads.listWithDiskState())
   handle<DownloadJob>(IPC.downloadStart, async (raw) => {
     const req = downloadRequestSchema.parse(raw)
     const job = await downloads.start(req.repo, req.file, req.expectedBytes)
