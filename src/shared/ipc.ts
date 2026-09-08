@@ -6,6 +6,9 @@ export const IPC = {
   serverStatusChanged: 'server:status-changed',
   /** Menu items act by asking the renderer to do what the UI already does. */
   menuAction: 'menu:action',
+  /** Main forwards a right-click's spelling data; the renderer draws the menu. */
+  contextMenuShow: 'context-menu:show',
+  contextMenuCommand: 'context-menu:command',
   logsSince: 'logs:since',
   logsChanged: 'logs:changed',
   binaryInfo: 'binary:info',

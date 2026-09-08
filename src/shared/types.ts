@@ -286,6 +286,35 @@ export interface BenchResult {
   buildCommit: string
 }
 
+/**
+ * A right-click, as the renderer needs to draw it.
+ *
+ * Spell-check results live only in the main process, so they are forwarded
+ * rather than looked up: Chromium knows the misspelled word and its
+ * suggestions, but nothing in the page can ask for them.
+ */
+export interface ContextMenuRequest {
+  x: number
+  y: number
+  isEditable: boolean
+  selectionText: string
+  linkURL: string
+  misspelledWord: string
+  dictionarySuggestions: string[]
+  canUndo: boolean
+  canRedo: boolean
+  canCut: boolean
+  canCopy: boolean
+  canPaste: boolean
+}
+
+export type ContextMenuCommand =
+  | { type: 'replace-misspelling'; word: string }
+  | { type: 'add-to-dictionary'; word: string }
+  | { type: 'undo' | 'redo' | 'cut' | 'copy' | 'paste' | 'select-all' }
+  | { type: 'copy-text'; text: string }
+  | { type: 'open-external'; url: string }
+
 /** What has actually been measured about this machine. */
 export interface MachineProfileView {
   gpuBytesPerSecond: number | null

@@ -11,7 +11,7 @@ import { DownloadManager } from './downloads.js'
 import { registerIpc, wireEvents } from './ipc.js'
 import { buildAppMenu } from './menu.js'
 import { migrateLegacyUserData } from './migrate.js'
-import { attachContextMenu } from './contextMenu.js'
+import { attachContextMenu, registerContextMenuCommands } from './contextMenu.js'
 import type { BinaryInfo } from '@shared/types.js'
 
 const dirname = fileURLToPath(new URL('.', import.meta.url))
@@ -137,6 +137,7 @@ async function bootstrap(): Promise<void> {
   wireEvents(supervisor, downloads)
   await supervisor.adoptOrReap()
 
+  registerContextMenuCommands()
   buildAppMenu(() => supervisor)
   createWindow()
 }

@@ -1,71 +1,61 @@
-import { Menu, MenuItem, clipboard, shell, type BrowserWindow } from 'electron'
+import { clipboard, ipcMain, shell, type BrowserWindow } from 'electron'
+import { IPC } from '@shared/ipc.js'
+import type { ContextMenuCommand, ContextMenuRequest } from '@shared/types.js'
 
 /**
- * Right-click menu.
+ * Right-click handling.
  *
  * Chromium spell-checks editable fields and underlines mistakes on its own, but
- * the suggestions are only reachable through a context menu the application has
- * to build. Without one the underline is a report of a problem with no way to
- * act on it, which is worse than no spell-check at all.
+ * the suggestions are only reachable through a menu the application provides.
+ * A native menu would supply one, at the cost of dropping a platform-styled
+ * window into the middle of an application that looks nothing like it. So the
+ * data is forwarded to the renderer, which draws a menu in the app's own idiom;
+ * the commands come back here, because replacing a misspelling and reaching the
+ * clipboard both need the main process.
  */
 export function attachContextMenu(win: BrowserWindow): void {
   win.webContents.on('context-menu', (_event, params) => {
-    const menu = new Menu()
-
-    // Spelling first: it is the reason most right-clicks happen in a text box.
-    if (params.misspelledWord) {
-      for (const suggestion of params.dictionarySuggestions) {
-        menu.append(
-          new MenuItem({
-            label: suggestion,
-            click: () => win.webContents.replaceMisspelling(suggestion)
-          })
-        )
-      }
-      if (params.dictionarySuggestions.length === 0) {
-        menu.append(new MenuItem({ label: 'No suggestions', enabled: false }))
-      }
-      menu.append(new MenuItem({ type: 'separator' }))
-      menu.append(
-        new MenuItem({
-          label: `Add “${params.misspelledWord}” to dictionary`,
-          click: () =>
-            win.webContents.session.addWordToSpellCheckerDictionary(params.misspelledWord)
-        })
-      )
-      menu.append(new MenuItem({ type: 'separator' }))
+    const request: ContextMenuRequest = {
+      x: params.x,
+      y: params.y,
+      isEditable: params.isEditable,
+      selectionText: params.selectionText,
+      linkURL: params.linkURL,
+      misspelledWord: params.misspelledWord,
+      dictionarySuggestions: params.dictionarySuggestions,
+      canUndo: params.editFlags.canUndo,
+      canRedo: params.editFlags.canRedo,
+      canCut: params.editFlags.canCut,
+      canCopy: params.editFlags.canCopy,
+      canPaste: params.editFlags.canPaste
     }
+    win.webContents.send(IPC.contextMenuShow, request)
+  })
+}
 
-    if (params.linkURL) {
-      menu.append(
-        new MenuItem({
-          label: 'Open Link in Browser',
-          click: () => void shell.openExternal(params.linkURL)
-        })
-      )
-      menu.append(
-        new MenuItem({
-          label: 'Copy Link Address',
-          click: () => clipboard.writeText(params.linkURL)
-        })
-      )
-      menu.append(new MenuItem({ type: 'separator' }))
+/** Registered once; the window is found from the sender so it works per window. */
+export function registerContextMenuCommands(): void {
+  ipcMain.on(IPC.contextMenuCommand, (event, raw: ContextMenuCommand) => {
+    const contents = event.sender
+    switch (raw?.type) {
+      case 'replace-misspelling':
+        contents.replaceMisspelling(raw.word)
+        break
+      case 'add-to-dictionary':
+        contents.session.addWordToSpellCheckerDictionary(raw.word)
+        break
+      case 'undo': contents.undo(); break
+      case 'redo': contents.redo(); break
+      case 'cut': contents.cut(); break
+      case 'copy': contents.copy(); break
+      case 'paste': contents.paste(); break
+      case 'select-all': contents.selectAll(); break
+      case 'copy-text': clipboard.writeText(raw.text); break
+      case 'open-external':
+        // Only http(s) is opened: a context menu should not be a way to hand an
+        // arbitrary scheme to the desktop.
+        if (/^https?:\/\//i.test(raw.url)) void shell.openExternal(raw.url)
+        break
     }
-
-    if (params.isEditable) {
-      menu.append(new MenuItem({ role: 'undo' }))
-      menu.append(new MenuItem({ role: 'redo' }))
-      menu.append(new MenuItem({ type: 'separator' }))
-      menu.append(new MenuItem({ role: 'cut' }))
-      menu.append(new MenuItem({ role: 'copy', enabled: params.selectionText.length > 0 }))
-      menu.append(new MenuItem({ role: 'paste' }))
-      menu.append(new MenuItem({ role: 'selectAll' }))
-    } else if (params.selectionText) {
-      menu.append(new MenuItem({ role: 'copy' }))
-      menu.append(new MenuItem({ role: 'selectAll' }))
-    }
-
-    // An empty menu would flash open and shut, which reads as a broken click.
-    if (menu.items.length > 0) menu.popup({ window: win })
   })
 }

@@ -9,6 +9,7 @@ import { useChatStore } from './state/chatStore.js'
 import { subscribeToDownloads, useDownloadStore } from './state/downloadStore.js'
 import { subscribeToBench } from './state/benchStore.js'
 import { FlagReference } from './components/FlagReference.js'
+import { ContextMenu } from './components/ContextMenu.js'
 import { StatusBadge } from './components/StatusBadge.js'
 
 type Tab = 'chat' | 'server' | 'models' | 'tuning'
@@ -139,6 +140,7 @@ export default function App(): React.JSX.Element {
       </main>
 
       {showFlags && <FlagReference onClose={() => setShowFlags(false)} />}
+      <ContextMenu />
     </div>
   )
 }
