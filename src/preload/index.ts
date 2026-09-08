@@ -8,6 +8,8 @@ import type {
   GpuDevice,
   BenchRequest,
   BenchRunView,
+  ContextMenuCommand,
+  ContextMenuRequest,
   MachineProfileView,
   DownloadJob,
   HealthCheckResult,
@@ -86,6 +88,12 @@ const api = {
     cancel: (id: string) => invoke<null>(IPC.downloadCancel, id),
     list: () => invoke<DownloadJob[]>(IPC.downloadList),
     onChanged: (cb: (job: DownloadJob) => void) => subscribe(IPC.downloadChanged, cb)
+  },
+  contextMenu: {
+    /** Right-click details from the main process, which owns the spell-checker. */
+    onShow: (cb: (request: ContextMenuRequest) => void) =>
+      subscribe<ContextMenuRequest>(IPC.contextMenuShow, cb),
+    send: (command: ContextMenuCommand) => ipcRenderer.send(IPC.contextMenuCommand, command)
   },
   menu: {
     /** Menu items ask the renderer to do what the UI already does. */
