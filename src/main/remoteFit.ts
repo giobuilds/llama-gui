@@ -3,6 +3,7 @@ import { parseGgufHeader } from './gguf.js'
 import type { GgufMetadata } from './gguf.js'
 import { planVram, type ComputeProfile } from './planner.js'
 import type { BinaryInfo, FitVerdict, HfFile, RemoteFit } from '@shared/types.js'
+import { estimateSpeed, comfortOf, type MachineProfile } from './speed.js'
 
 /**
  * Works out whether a model will run well on this machine *before* downloading
@@ -63,7 +64,13 @@ async function fetchHeader(repo: string, file: string): Promise<Partial<GgufMeta
       embeddingLength: num(kv.get(`${arch}.embedding_length`)),
       headCount: num(kv.get(`${arch}.attention.head_count`)),
       headCountKv: num(kv.get(`${arch}.attention.head_count_kv`)),
-      vocabSize: arrayLengths.get('tokenizer.ggml.tokens') ?? null
+      vocabSize: arrayLengths.get('tokenizer.ggml.tokens') ?? null,
+      feedForwardLength: num(kv.get(`${arch}.feed_forward_length`)),
+      keyLength: num(kv.get(`${arch}.attention.key_length`)),
+      valueLength: num(kv.get(`${arch}.attention.value_length`)),
+      expertCount: num(kv.get(`${arch}.expert_count`)),
+      expertUsedCount: num(kv.get(`${arch}.expert_used_count`)),
+      expertFeedForwardLength: num(kv.get(`${arch}.expert_feed_forward_length`))
     }
   } catch {
     return null
@@ -85,7 +92,9 @@ export async function estimateRepoFit(
   repo: string,
   files: HfFile[],
   freeMiB: number | null,
-  binary: BinaryInfo
+  binary: BinaryInfo,
+  /** Measured throughput of this machine; without it no speed is claimed. */
+  machine?: MachineProfile
 ): Promise<RemoteFit[]> {
   const profile: ComputeProfile = binary.kind === 'unified' ? 'modern' : 'classic'
   const hasGpu = binary.devices.length > 0
@@ -108,7 +117,10 @@ export async function estimateRepoFit(
 
       for (const file of group) {
         if (!shape || freeMiB === null) {
-          out.push({ file: file.path, verdict: 'unknown', totalMiB: null, maxGpuLayers: null, note: null })
+          out.push({
+            file: file.path, verdict: 'unknown', totalMiB: null, maxGpuLayers: null, note: null,
+            tokensPerSecond: null, comfort: 'unknown', moe: false, placement: 'gpu', speedNotes: []
+          })
           continue
         }
         const meta = {
@@ -136,6 +148,10 @@ export async function estimateRepoFit(
           freeMiB
         )
         const offloaded = plan.fits ? plan.totalLayers : (plan.maxGpuLayers ?? 0)
+        // Speed is a separate question from fit: a mixture of experts that does
+        // not fit in VRAM can still be perfectly usable, and a model that does
+        // fit can still be slow.
+        const speed = machine ? estimateSpeed(meta, machine) : null
         out.push({
           file: file.path,
           verdict: verdictFor(offloaded, plan.totalLayers),
@@ -144,7 +160,12 @@ export async function estimateRepoFit(
           note:
             shape.contextLength && shape.contextLength < CONTEXT_FOR_ESTIMATE
               ? `trained for ${shape.contextLength} tokens`
-              : null
+              : null,
+          tokensPerSecond: speed?.tokensPerSecond ?? null,
+          comfort: comfortOf(speed?.tokensPerSecond ?? null),
+          moe: speed?.moe ?? Boolean(shape.expertCount),
+          placement: speed?.placement ?? 'gpu',
+          speedNotes: speed?.notes ?? []
         })
       }
     })

@@ -143,6 +143,30 @@ with `-ctv` when given lists, which would produce mismatched K/V pairs nobody
 asked for. Sweeps are therefore split into one run per cache type, with quantised
 types measured with flash attention on.
 
+## Will a model be fast enough?
+
+Fitting is only half the question. The download page also predicts generation
+speed, and labels it by how it feels: **fast**, **comfortable**, **slow** or
+**painful**, with the boundaries set around reading pace — roughly 5-10 tokens a
+second is where a model stops keeping up with a person.
+
+Generation is memory-bandwidth-bound: every token reads the weights that take
+part in it, so throughput is about `bytes read per token / bandwidth`. Two things
+make that more than a division:
+
+- **Mixture-of-experts models** read only their active experts each token, so a
+  30B model can behave like a 3B one. Judging by file size would predict 2 tok/s
+  where reality is nearer 20 — the difference between pointless and usable. The
+  active parameter count is computed from the header and matches the figures
+  publishers advertise to within about 1% on the models checked.
+- **A model too large for VRAM is not simply unusable.** llama.cpp can keep
+  attention on the GPU with experts in system RAM (`--cpu-moe`), so the estimate
+  blends both bandwidths rather than refusing to answer.
+
+The machine's bandwidth is **measured, not assumed** — learned from the binary
+check and any benchmarks you run, so it needs no separate calibration step. Until
+something has been measured, no speed is claimed at all.
+
 ## Which model fits your machine
 
 Choosing between eight quantisations of the same model is the real difficulty,

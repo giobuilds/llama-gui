@@ -37,6 +37,8 @@ import {
   type DownloadManager
 } from './downloads.js'
 import { estimateRepoFit } from './remoteFit.js'
+import { activeParameters, type MachineProfile } from './speed.js'
+import { totalmem } from 'node:os'
 import { BenchRunner } from './bench.js'
 import { benchRequestSchema } from '@shared/schema.js'
 import { downloadRequestSchema } from '@shared/schema.js'
@@ -186,7 +188,22 @@ export function registerIpc(
     if (supervisor.status.pid !== null) {
       throw new Error('Stop the running server before testing the binary.')
     }
-    return runHealthCheck(supervisor.binaryInfo, req.modelPath, req.gpuLayers)
+    const result = await runHealthCheck(supervisor.binaryInfo, req.modelPath, req.gpuLayers)
+    // The check already generated tokens against a model of known size, which
+    // is exactly a bandwidth measurement — no separate calibration step needed.
+    if (result.ok && result.tokensPerSecond) {
+      const model = (await listModels(false)).find((m) => m.path === req.modelPath)
+      const params = model ? activeParameters(model) : null
+      if (model && params) {
+        await settings.observe({
+          activeBytes: model.fileSize * (params.active / params.total),
+          tokensPerSecond: result.tokensPerSecond,
+          onGpu: req.gpuLayers > 0 && supervisor.binaryInfo.devices.length > 0
+        })
+        repoFitCache.clear()
+      }
+    }
+    return result
   })
 
   handle<string | null>(IPC.pickModelDir, async () => {
@@ -210,6 +227,27 @@ export function registerIpc(
    * they are cached per repo. The answer only changes if the binary does, which
    * the key accounts for.
    */
+  /**
+   * The machine's measured throughput, learned from health checks and
+   * benchmarks. Without a GPU sample no speed is predicted, rather than one
+   * being invented from a specification sheet.
+   */
+  const machineProfile = (): MachineProfile | undefined => {
+    const c = settings.current.calibration
+    if (!c.gpuBytesPerSecond && !c.cpuBytesPerSecond) return undefined
+    const devices = supervisor.binaryInfo.devices
+    const freeVram = devices[0]?.freeMiB ?? 0
+    return {
+      gpuBytesPerSecond: c.gpuBytesPerSecond,
+      // A conservative stand-in until a CPU-only run is measured; dual-channel
+      // DDR4 achieves roughly this.
+      cpuBytesPerSecond: c.cpuBytesPerSecond ?? 20e9,
+      vramBytes: freeVram * 1024 * 1024,
+      ramBytes: totalmem() * 0.65,
+      overheadCeilingTokensPerSecond: c.ceilingTokensPerSecond ?? 600
+    }
+  }
+
   const repoFitCache = new Map<string, RemoteFit[]>()
   handle<RemoteFit[]>(IPC.hfFit, async (rawRepo) => {
     const repo = String(rawRepo ?? '')
@@ -227,7 +265,7 @@ export function registerIpc(
     } catch {
       freeMiB = null
     }
-    const fits = await estimateRepoFit(repo, files, freeMiB, binary)
+    const fits = await estimateRepoFit(repo, files, freeMiB, binary, machineProfile())
     repoFitCache.set(key, fits)
     return fits
   })

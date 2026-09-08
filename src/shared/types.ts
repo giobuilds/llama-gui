@@ -320,6 +320,8 @@ export type FitVerdict =
   /** The header could not be read, so no claim is made. */
   | 'unknown'
 
+export type Comfort = 'fast' | 'comfortable' | 'slow' | 'painful' | 'unknown'
+
 export interface RemoteFit {
   file: string
   verdict: FitVerdict
@@ -327,6 +329,14 @@ export interface RemoteFit {
   totalMiB: number | null
   maxGpuLayers: number | null
   note: string | null
+  /** Predicted generation speed on this machine, once calibrated. */
+  tokensPerSecond: number | null
+  comfort: Comfort
+  /** Mixture of experts: reads far less per token than its size implies. */
+  moe: boolean
+  /** Where the weights would have to live: 'gpu', 'hybrid-moe', 'partial', 'cpu', 'wont-load'. */
+  placement: string
+  speedNotes: string[]
 }
 
 export type DownloadState = 'queued' | 'running' | 'done' | 'failed' | 'cancelled'
