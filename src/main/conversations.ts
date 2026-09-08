@@ -52,6 +52,12 @@ export const messageSchema = z.object({
     .optional(),
   /** Set when generation was cut short, so a partial reply is not mistaken for a complete one. */
   stopped: z.boolean().optional(),
+  /** The server's own token counts for the request that produced this turn. */
+  usage: z
+    .object({ promptTokens: z.number(), predictedTokens: z.number() })
+    .optional(),
+  /** Generation ended because the context window filled, not because the model was done. */
+  ranOutOfContext: z.boolean().optional(),
   error: z.string().optional()
 })
 
@@ -76,7 +82,24 @@ export const conversationSchema = z.object({
   /** Tool names the model may call in this conversation. */
   tools: z.array(z.string().max(64)).max(64).default([]),
   messages: z.array(messageSchema).default([]),
-  settings: chatSettingsSchema.default(DEFAULT_CHAT_SETTINGS)
+  settings: chatSettingsSchema.default(DEFAULT_CHAT_SETTINGS),
+  /**
+   * A summary standing in for the oldest messages, once they no longer fit.
+   * The messages themselves are kept — the transcript still shows everything —
+   * but only the summary is sent to the model.
+   */
+  compaction: z
+    .object({
+      summary: z.string(),
+      /** Everything up to and including this message is what the summary covers. */
+      throughMessageId: z.string(),
+      messageCount: z.number(),
+      at: z.number()
+    })
+    .nullable()
+    .default(null),
+  /** Whether to compact on its own when the window is nearly full. */
+  autoCompact: z.boolean().default(true)
 })
 
 export type ChatSettings = z.infer<typeof chatSettingsSchema>
@@ -165,7 +188,9 @@ export class ConversationStore {
       systemPrompt,
       tools,
       messages: [],
-      settings: DEFAULT_CHAT_SETTINGS
+      settings: DEFAULT_CHAT_SETTINGS,
+      compaction: null,
+      autoCompact: true
     })
   }
 

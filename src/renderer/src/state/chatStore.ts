@@ -8,6 +8,7 @@ import type {
 import { streamChat, type ChatTurn, type StreamedToolCall } from '../api/chatClient.js'
 import type { ToolCallView, ToolDefinition } from '@shared/types.js'
 import { useServerStore } from './serverStore.js'
+import { compactableMessages, shouldCompact, summarise } from './compact.js'
 
 const DEFAULT_SETTINGS: ChatSettingsView = {
   temperature: 0.8,
@@ -56,6 +57,8 @@ interface ChatState {
   streams: Record<string, ActiveStream>
   /** Tools the model may call, and which of them are switched on. */
   availableTools: ToolDefinition[]
+  /** Conversations currently being summarised, so the UI can say so. */
+  compacting: Record<string, boolean>
   error: string | null
 
   load: () => Promise<void>
@@ -65,6 +68,9 @@ interface ChatState {
   create: () => Promise<void>
   remove: (id: string) => Promise<void>
   send: (text: string, images?: string[]) => Promise<void>
+  /** Summarise the oldest turns so the conversation keeps fitting. */
+  compact: (conversationId?: string) => Promise<void>
+  setAutoCompact: (enabled: boolean) => Promise<void>
   stop: (conversationId?: string) => void
   stopAll: () => void
   flushInFlight: () => Promise<void>
@@ -92,6 +98,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   activeId: null,
   streams: {},
   availableTools: [],
+  compacting: {},
   error: null,
 
   async loadTools() {
@@ -188,7 +195,70 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
     put(set, get, withUser)
     await persist(withUser, set, get)
+
+    // Make room before asking, rather than letting the reply stop mid-sentence.
+    const limit = useServerStore.getState().status?.contextPerSlot ?? null
+    if (shouldCompact(withUser, trimmed, limit)) await get().compact(withUser.id)
+
     await runCompletion(withUser.id, set, get)
+  },
+
+  /**
+   * Replace the oldest turns with a summary of them.
+   *
+   * The messages stay in the transcript — only what is sent to the model
+   * changes — so nothing the user wrote is lost by this.
+   */
+  async compact(conversationId) {
+    const id = conversationId ?? get().activeId
+    if (!id) return
+    const conversation = get().byId[id]
+    const status = useServerStore.getState().status
+    if (!conversation || !status || status.phase !== 'ready' || !status.port) return
+
+    const limit = status.contextPerSlot
+    const older = compactableMessages(conversation, limit)
+    if (older.length === 0) return
+
+    set({ compacting: { ...get().compacting, [id]: true } })
+    try {
+      const summary = await summarise(
+        `http://127.0.0.1:${status.port}`,
+        conversation,
+        older,
+        conversation.compaction?.summary ?? null,
+        limit,
+        AbortSignal.timeout(120_000)
+      )
+      const current = get().byId[id]
+      if (!current) return
+      const next: ConversationView = {
+        ...current,
+        compaction: {
+          summary,
+          throughMessageId: older[older.length - 1]!.id,
+          messageCount: (current.compaction?.messageCount ?? 0) + older.length,
+          at: Date.now()
+        }
+      }
+      put(set, get, next)
+      await persist(next, set, get)
+    } catch (err) {
+      // A failed summary is not a failed conversation: say so and carry on,
+      // since the request that follows may still fit.
+      set({ error: `Could not compact this chat: ${(err as Error).message}` })
+    } finally {
+      const { [id]: _done, ...rest } = get().compacting
+      set({ compacting: rest })
+    }
+  },
+
+  async setAutoCompact(enabled) {
+    const conversation = activeConversation(get())
+    if (!conversation) return
+    const next = { ...conversation, autoCompact: enabled }
+    put(set, get, next)
+    await persist(next, set, get)
   },
 
   stop(conversationId) {
@@ -302,7 +372,22 @@ export function buildTurns(conversation: ConversationView): ChatTurn[] {
     assistantTurns.slice(-KEEP_FULL_RESULTS_FOR_TURNS).map((m) => m.id)
   )
 
-  for (const m of conversation.messages) {
+  // Everything the summary covers is represented by the summary alone. The
+  // messages stay in the transcript; they simply stop being sent.
+  const compaction = conversation.compaction
+  let skipUntil = compaction
+    ? conversation.messages.findIndex((m) => m.id === compaction.throughMessageId)
+    : -1
+  if (compaction && skipUntil === -1) skipUntil = -1 // a summary whose anchor is gone covers nothing
+  if (compaction && skipUntil >= 0) {
+    turns.push({
+      role: 'system',
+      content: `Summary of the earlier part of this conversation:\n\n${compaction.summary}`
+    })
+  }
+
+  for (const [index, m] of conversation.messages.entries()) {
+    if (skipUntil >= 0 && index <= skipUntil) continue
     if (m.role === 'system') continue
     if (m.role === 'assistant' && m.toolCalls?.length) {
       const keepFull = recent.has(m.id)
@@ -321,6 +406,21 @@ export function buildTurns(conversation: ConversationView): ChatTurn[] {
     turns.push({ role: m.role, content: m.content, ...(m.images?.length ? { images: m.images } : {}) })
   }
   return turns
+}
+
+/**
+ * The one failure compaction cannot fix: a window too small for a single
+ * exchange. Naming the two settings that change it beats repeating the
+ * server's own "try increasing it".
+ */
+function contextTooSmall(limit: number | null): string {
+  const size = limit ? `${limit.toLocaleString()} tokens` : 'this window'
+  return (
+    `Even after summarising, this conversation does not fit in ${size}. ` +
+    'Raise the context size on the Server tab, or lower the number of parallel ' +
+    'slots — the context is shared out between them, so 4 slots give each chat ' +
+    'a quarter of it.'
+  )
 }
 
 /** Arguments come from model output, so a malformed object is handled, not thrown. */
@@ -383,7 +483,13 @@ async function persist(
  * Deltas are applied to memory as they arrive and written to disk once at the
  * end; persisting per token would be thousands of writes per reply.
  */
-async function runCompletion(conversationId: string, set: Setter, get: Getter): Promise<void> {
+async function runCompletion(
+  conversationId: string,
+  set: Setter,
+  get: Getter,
+  /** Set on the retry that follows a compaction, so a failure cannot loop. */
+  afterCompaction = false
+): Promise<void> {
   const conversation = get().byId[conversationId]
   if (!conversation) return
 
@@ -412,6 +518,9 @@ async function runCompletion(conversationId: string, set: Setter, get: Getter): 
 
   let content = ''
   let reasoning = ''
+  // The prompt was already too long to send at all — a different failure from
+  // a reply that runs out of room part way through, and a recoverable one.
+  let promptTooLong = false
   const toolCalls: ToolCallView[] = []
   const apply = (patch: Partial<ChatMessageView>): void => {
     const current = get().byId[conversationId]
@@ -450,18 +559,26 @@ async function runCompletion(conversationId: string, set: Setter, get: Getter): 
             reasoning += text
             apply({ reasoning })
           },
-          onDone: ({ tokensPerSecond, model, toolCalls: calls }) => {
+          onDone: ({ tokensPerSecond, model, toolCalls: calls, usage, finishReason }) => {
             requested = calls.filter((c) => c.name)
+            // "length" with no max_tokens of our own means the window filled:
+            // the reply is unfinished, and saying so is the difference between
+            // a bug and a limit.
+            const capped = (conversation.settings ?? DEFAULT_SETTINGS).maxTokens > 0
             apply({
               content,
               reasoning: reasoning || undefined,
               tokensPerSecond: tokensPerSecond ?? undefined,
               model: model ?? undefined,
+              usage: usage ?? undefined,
+              ranOutOfContext: (!capped && finishReason === 'length') || undefined,
               stopped: abort.signal.aborted || undefined
             })
           },
           onError: (message) => {
             failed = true
+            promptTooLong = /exceed(s|_)?.{0,20}context size/i.test(message)
+            if (promptTooLong && !afterCompaction) return
             apply({ content, error: message })
             set({ error: message })
           }
@@ -506,6 +623,20 @@ async function runCompletion(conversationId: string, set: Setter, get: Getter): 
   } finally {
     const { [conversationId]: _done, ...remaining } = get().streams
     set({ streams: remaining })
+  }
+
+  if (promptTooLong && !afterCompaction) {
+    // Drop the stub reply, summarise what will not fit, and ask again once.
+    const before = get().byId[conversationId]
+    if (before) {
+      put(set, get, { ...before, messages: before.messages.filter((m) => m.id !== reply.id) })
+    }
+    await get().compact(conversationId)
+    if (get().byId[conversationId]?.compaction) {
+      return runCompletion(conversationId, set, get, true)
+    }
+    set({ error: contextTooSmall(useServerStore.getState().status?.contextPerSlot ?? null) })
+    return
   }
 
   const finished = get().byId[conversationId]

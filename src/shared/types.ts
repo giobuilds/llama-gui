@@ -115,6 +115,12 @@ export interface ServerStatus {
   /** True when we adopted a server that was already running rather than spawning it. */
   adopted: boolean
   /**
+   * Context each conversation gets, read from /props once ready.
+   * `--ctx-size` is shared out between slots, so this is the total divided by
+   * `--parallel` — and it is what a chat runs out of, not the total.
+   */
+  contextPerSlot: number | null
+  /**
    * What the running model can accept, read from /props once it is ready.
    * Null until then, since it cannot be known before the model loads.
    */
@@ -542,6 +548,13 @@ export interface ChatSettingsView {
   maxTokens: number
 }
 
+export interface CompactionView {
+  summary: string
+  throughMessageId: string
+  messageCount: number
+  at: number
+}
+
 export interface ChatMessageView {
   id: string
   role: 'system' | 'user' | 'assistant'
@@ -550,6 +563,10 @@ export interface ChatMessageView {
   images?: string[]
   /** Tool calls the assistant made on this turn, with what came back. */
   toolCalls?: ToolCallView[]
+  /** The server's own token counts for the request that produced this turn. */
+  usage?: { promptTokens: number; predictedTokens: number }
+  /** Generation ended because the window filled, not because the model was done. */
+  ranOutOfContext?: boolean
   createdAt: number
   model?: string
   tokensPerSecond?: number
@@ -568,6 +585,10 @@ export interface ConversationView {
   settings: ChatSettingsView
   /** Tool names enabled for this conversation. */
   tools: string[]
+  /** Stands in for the oldest messages once they no longer fit; null until then. */
+  compaction: CompactionView | null
+  /** Whether to compact on its own when the window is nearly full. */
+  autoCompact: boolean
 }
 
 export interface ConversationSummaryView {

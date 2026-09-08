@@ -24,8 +24,20 @@ export interface StreamCallbacks {
     tokensPerSecond: number | null
     model: string | null
     toolCalls: StreamedToolCall[]
+    /** The server's own token counts for this request, when it reported them. */
+    usage: TokenUsage | null
+    /**
+     * Why generation ended. 'length' means it ran out of room — either the
+     * caller's max_tokens or, with none set, the context window itself.
+     */
+    finishReason: string | null
   }) => void
   onError: (message: string) => void
+}
+
+export interface TokenUsage {
+  promptTokens: number
+  predictedTokens: number
 }
 
 export interface ChatTurn {
@@ -86,7 +98,12 @@ interface StreamChunk {
     }
     finish_reason?: string | null
   }>
-  timings?: { predicted_per_second?: number }
+  timings?: {
+    predicted_per_second?: number
+    /** Tokens the server read for this request, and produced in reply. */
+    prompt_n?: number
+    predicted_n?: number
+  }
   error?: { message?: string }
 }
 
@@ -135,6 +152,8 @@ export async function streamChat(
   let buffer = ''
   let tokensPerSecond: number | null = null
   let model: string | null = null
+  let usage: TokenUsage | null = null
+  let finishReason: string | null = null
   const toolCalls = new Map<number, StreamedToolCall>()
 
   try {
@@ -167,6 +186,17 @@ export async function streamChat(
           if (chunk.timings?.predicted_per_second) {
             tokensPerSecond = chunk.timings.predicted_per_second
           }
+          // Sent in the final chunk. Counting tokens here rather than guessing
+          // at them is what makes the context meter trustworthy.
+          if (typeof chunk.timings?.prompt_n === 'number') {
+            usage = {
+              promptTokens: chunk.timings.prompt_n,
+              predictedTokens: chunk.timings.predicted_n ?? 0
+            }
+          }
+          if (chunk.choices?.[0]?.finish_reason) {
+            finishReason = chunk.choices[0].finish_reason
+          }
           const delta = chunk.choices?.[0]?.delta
           if (delta?.reasoning_content) cb.onReasoning?.(delta.reasoning_content)
           if (delta?.content) cb.onDelta(delta.content)
@@ -182,11 +212,17 @@ export async function streamChat(
         }
       }
     }
-    cb.onDone({ tokensPerSecond, model, toolCalls: [...toolCalls.values()] })
+    cb.onDone({ tokensPerSecond, model, toolCalls: [...toolCalls.values()], usage, finishReason })
   } catch (err) {
     // An abort is a user action, not a failure: the partial reply is kept.
     if (signal.aborted) {
-      cb.onDone({ tokensPerSecond, model, toolCalls: [...toolCalls.values()] })
+      cb.onDone({
+        tokensPerSecond,
+        model,
+        toolCalls: [...toolCalls.values()],
+        usage,
+        finishReason: 'aborted'
+      })
       return
     }
     cb.onError(`Stream interrupted: ${(err as Error).message}`)

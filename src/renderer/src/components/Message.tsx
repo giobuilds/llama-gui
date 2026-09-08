@@ -3,12 +3,44 @@ import { useAutoSize } from './useAutoSize.js'
 import type { ChatMessageView } from '@shared/types.js'
 import { renderMarkdown } from '../api/markdown.js'
 import { ToolCalls } from './ToolCalls.js'
+import { useServerStore } from '../state/serverStore.js'
 
 /**
  * One turn. Assistant content is markdown-rendered (and sanitised in
  * renderMarkdown); user content is shown as plain text, since a user typing
  * asterisks means asterisks.
  */
+/**
+ * Why a reply stops mid-sentence, said in full.
+ *
+ * The window a chat gets is the server's context divided by the number of
+ * concurrent chats, which is the part nobody guesses — and a thinking model
+ * spends that budget on reasoning before it writes a word, so the reply can
+ * end with nothing visible at all.
+ */
+function RanOutOfContext({
+  usage
+}: {
+  usage: ChatMessageView['usage']
+}): React.JSX.Element {
+  const limit = useServerStore((s) => s.status?.contextPerSlot ?? null)
+  const slots = useServerStore((s) => s.status?.config?.parallel ?? null)
+  const used = usage ? usage.promptTokens + usage.predictedTokens : null
+
+  return (
+    <p className="mt-2 rounded border border-amber-800 bg-amber-950/40 p-2 text-xs leading-relaxed text-amber-100">
+      This reply stopped because it filled the context window
+      {used && limit ? ` — ${used.toLocaleString()} of ${limit.toLocaleString()} tokens` : ''}, not
+      because the model had finished.{' '}
+      {slots && slots > 1 && limit
+        ? `This chat gets ${limit.toLocaleString()} tokens because the server's context is shared between ${slots} concurrent chats; running fewer slots, or a larger context, gives each chat more room. `
+        : 'A larger context on the Server tab gives it more room. '}
+      Reasoning counts towards the same budget, so a model that thinks at length
+      can use it up before writing an answer.
+    </p>
+  )
+}
+
 export function Message({
   message,
   streaming,
@@ -166,6 +198,8 @@ export function Message({
               {message.error}
             </p>
           )}
+
+          {message.ranOutOfContext && <RanOutOfContext usage={message.usage} />}
 
           <div className="mt-2 flex items-center gap-3 text-[11px] text-muted opacity-0 transition-opacity group-hover:opacity-100">
             <button type="button" onClick={onCopy} className="hover:text-accent">
