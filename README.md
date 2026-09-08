@@ -320,6 +320,31 @@ If GPU inference crashes for you, the problem is the llama.cpp build, not this
 app or the model — verify with `llama-server` directly before filing anything
 here.
 
+## Tests
+
+```bash
+npm test            # unit suites — nothing but this repo, safe anywhere
+npm run test:all    # adds integration suites
+```
+
+There is no test framework. Suites are TypeScript that imports the app's own
+modules, bundled with esbuild and run as scripts; assertions come from
+`node:assert` and each suite prints what it checked, so the output reads as a
+description of the behaviour rather than a wall of dots.
+
+The split matters because the tiers need different things. **Unit** suites need
+nothing beyond this repository — argument construction, the log ring buffer, the
+VRAM planner against recorded measurements, calibration fitting, launch
+profiles, the rename migration, and the full server lifecycle against a shim
+that speaks llama-server's own stderr and `/health` semantics. **Integration**
+suites need a real llama.cpp binary, a model on disk, or network access: they
+launch servers, read GGUF headers over HTTP, download models and run benchmarks.
+
+Several of the sharper bugs in this project were found by integration suites
+checking the *outcome* rather than trusting a success message — a download that
+reported success while the model never appeared in the library, a benchmark that
+"ran" while producing nothing usable.
+
 ## Development
 
 ```bash

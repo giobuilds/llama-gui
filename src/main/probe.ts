@@ -1,6 +1,5 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { stat } from 'node:fs/promises'
 import { accessSync, constants } from 'node:fs'
 import { join, basename } from 'node:path'
 import type { BinaryInfo, BinaryKind, GpuDevice } from '@shared/types.js'
@@ -260,15 +259,6 @@ export async function probeAll(explicit?: string): Promise<BinaryInfo[]> {
   return results
     .filter((r): r is PromiseFulfilledResult<BinaryInfo> => r.status === 'fulfilled')
     .map((r) => r.value)
-}
-
-/**
- * Fedora's llama-cpp reports `version: 0 (unknown)`, so the version string is
- * not a usable cache key. Identity is the binary's size + mtime.
- */
-export async function binaryFingerprint(path: string): Promise<string> {
-  const s = await stat(path)
-  return `${path}:${s.size}:${Math.trunc(s.mtimeMs)}`
 }
 
 /**
