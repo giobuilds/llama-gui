@@ -42,8 +42,8 @@ export function Downloads(): React.JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const active = jobs.filter((j) => j.state === 'running')
-  const recent = jobs.filter((j) => j.state !== 'running').slice(0, 6)
+  const active = jobs.filter((j) => j.state === 'running' || j.state === 'queued')
+  const recent = jobs.filter((j) => j.state !== 'running' && j.state !== 'queued').slice(0, 6)
 
   return (
     <div className="flex h-full min-h-0">
@@ -317,13 +317,19 @@ function JobRow({ job, onCancel }: { job: DownloadJob; onCancel: () => void }): 
         <span className="min-w-0 flex-1 truncate text-[11px] text-slate-200" title={`${job.repo}/${job.file}`}>
           {job.file}
         </span>
-        {job.state === 'running' && (
+        {(job.state === 'running' || job.state === 'queued') && (
           <button type="button" onClick={onCancel} className="text-[11px] text-muted hover:text-rose-300">
             Cancel
           </button>
         )}
       </div>
       <p className="truncate text-[10px] text-muted">{job.repo}</p>
+
+      {job.state === 'queued' && (
+        <p className="mt-1 text-[10px] text-muted">
+          Waiting — one download at a time per repository.
+        </p>
+      )}
 
       {job.state === 'running' && (
         <>
@@ -336,7 +342,7 @@ function JobRow({ job, onCancel }: { job: DownloadJob; onCancel: () => void }): 
         </>
       )}
 
-      {job.state !== 'running' && (
+      {job.state !== 'running' && job.state !== 'queued' && (
         <p className={`mt-1 text-[10px] ${tone}`}>
           {job.state === 'done'
             ? 'Ready to use — it is in your model list'

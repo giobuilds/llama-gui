@@ -115,6 +115,9 @@ as part of the model rather than as a separate thing to remember:
   inherits one
 - downloading a vision model fetches its projector too; `llama download` does
   not do this for a specific `--hf-file`
+- when no projector matches the model's quantisation, the smaller one is taken:
+  VRAM is the binding constraint and a quantised projector is close to lossless,
+  while an f16 one can cost several hundred MiB more for no visible gain
 
 Whether images can actually be sent is read from the running server's `/props`
 (`modalities.vision`), not inferred from having passed a flag — passing one is
@@ -170,6 +173,10 @@ rather than parsed: the HF cache writes the incoming file as
 `blobs/<sha>.downloadInProgress`, and its size against the size the API reports
 gives an accurate percentage. Cancelling leaves the partial file in place, and
 starting the same download again resumes from it.
+
+Downloads from one repository run one at a time. Two `llama download` processes
+on the same repo race to write the cache's `refs/main` and one loses — which is
+exactly the pairing the app queues for a vision model.
 
 Note that models land in `~/.cache/huggingface/hub`, where the snapshot entry is
 a *symlink* into `blobs/`. The library scan resolves symlinks for this reason;

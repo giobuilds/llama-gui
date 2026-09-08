@@ -329,7 +329,7 @@ export interface RemoteFit {
   note: string | null
 }
 
-export type DownloadState = 'running' | 'done' | 'failed' | 'cancelled'
+export type DownloadState = 'queued' | 'running' | 'done' | 'failed' | 'cancelled'
 
 export interface DownloadJob {
   id: string
