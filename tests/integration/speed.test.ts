@@ -6,6 +6,8 @@ import type { GgufMetadata } from '../../src/main/gguf.js'
 import { activeParameters, estimateSpeed, comfortOf, type MachineProfile } from '../../src/main/speed.js'
 
 let n=0; const ok=(m:string)=>{n++;console.log('  ok',m)}
+// Fixed figures on purpose: this suite tests the arithmetic, not the machine,
+// so it must not change its answer because something else is using the GPU.
 const MACHINE: MachineProfile = {
   gpuBytesPerSecond: 171e9, cpuBytesPerSecond: 22e9,
   vramBytes: 7.0e9, ramBytes: 20e9, overheadCeilingTokensPerSecond: 630

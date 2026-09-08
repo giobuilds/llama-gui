@@ -11,6 +11,7 @@ import { DownloadManager } from './downloads.js'
 import { registerIpc, wireEvents } from './ipc.js'
 import { buildAppMenu } from './menu.js'
 import { migrateLegacyUserData } from './migrate.js'
+import { attachContextMenu } from './contextMenu.js'
 import type { BinaryInfo } from '@shared/types.js'
 
 const dirname = fileURLToPath(new URL('.', import.meta.url))
@@ -30,12 +31,14 @@ function createWindow(): BrowserWindow {
     webPreferences: {
       preload: join(dirname, '../preload/index.cjs'),
       contextIsolation: true,
+      spellcheck: true,
       nodeIntegration: false,
       sandbox: true
     }
   })
 
   win.once('ready-to-show', () => win.show())
+  attachContextMenu(win)
 
   // External links open in the real browser, never inside the app window.
   win.webContents.setWindowOpenHandler(({ url }) => {

@@ -157,6 +157,33 @@ export class DownloadManager extends EventEmitter<DownloadEvents> {
     this.binary = binary
   }
 
+  /**
+   * The job list with each entry checked against the disk.
+   *
+   * A stored record says what happened at the time; it cannot say what is there
+   * now. A cancelled download may since have been completed or deleted, and
+   * telling someone a partial file is "kept" when it is not sends them looking
+   * for something that does not exist.
+   */
+  async listWithDiskState(): Promise<DownloadJob[]> {
+    const jobs = this.list()
+    const partials = new Map<string, Array<{ name: string; size: number }>>()
+    return Promise.all(
+      jobs.map(async (job) => {
+        if (job.state === 'running' || job.state === 'queued') return job
+        if (!partials.has(job.repo)) partials.set(job.repo, await inFlightBlobs(job.repo))
+        const anyPartial = partials.get(job.repo)!
+        return {
+          ...job,
+          // Blobs are named by hash, so a partial cannot be tied to a specific
+          // file; what can be said is whether the repo has one at all.
+          partialBytes: anyPartial.reduce((total, b) => total + b.size, 0) || undefined,
+          onDisk: await fileExists(job.repo, job.file)
+        }
+      })
+    )
+  }
+
   list(): DownloadJob[] {
     return [
       ...[...this.jobs.values()].map((j) => j.job),
@@ -347,6 +374,24 @@ export class DownloadManager extends EventEmitter<DownloadEvents> {
     this.queued = []
     for (const id of [...this.jobs.keys()]) this.cancel(id)
   }
+}
+
+/** Is the finished file present in the repo's snapshot directory? */
+async function fileExists(repo: string, file: string): Promise<boolean> {
+  const snapshots = join(repoCacheDir(repo), 'snapshots')
+  try {
+    for (const revision of await readdir(snapshots)) {
+      try {
+        await stat(join(snapshots, revision, file))
+        return true
+      } catch {
+        // Not in this revision; try the next.
+      }
+    }
+  } catch {
+    // No snapshots directory means nothing was ever completed here.
+  }
+  return false
 }
 
 /** Every partially-written blob in a repo's cache, with its current size. */
