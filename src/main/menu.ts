@@ -1,4 +1,4 @@
-import { app, Menu, shell, dialog, BrowserWindow, type MenuItemConstructorOptions } from 'electron'
+import { app, Menu, shell, BrowserWindow, type MenuItemConstructorOptions } from 'electron'
 import { IPC } from '@shared/ipc.js'
 import type { ServerSupervisor } from './supervisor.js'
 
@@ -130,37 +130,11 @@ export function buildAppMenu(supervisor: () => ServerSupervisor | null): void {
         { type: 'separator' },
         {
           label: `About ${app.getName()}`,
-          click: () => void showAbout(supervisor)
+          click: () => send(IPC.menuAction, 'help:about')
         }
       ]
     }
   ]
 
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
-}
-
-async function showAbout(supervisor: () => ServerSupervisor | null): Promise<void> {
-  const binary = supervisor()?.binaryInfo
-  // Which llama.cpp is in use matters more than which Electron is, since it is
-  // what decides what the app can do and how fast it runs.
-  const detail = [
-    `Version ${app.getVersion()}`,
-    binary?.path ? `llama.cpp: ${binary.label}` : 'llama.cpp: not found',
-    binary?.path ? binary.path : '',
-    binary?.devices.length
-      ? `Device: ${binary.devices[0]!.name} (${binary.devices[0]!.totalMiB} MiB)`
-      : 'Device: CPU only',
-    '',
-    `Electron ${process.versions.electron} · Node ${process.versions.node}`
-  ]
-    .filter(Boolean)
-    .join('\n')
-
-  await dialog.showMessageBox({
-    type: 'info',
-    title: `About ${app.getName()}`,
-    message: app.getName(),
-    detail,
-    buttons: ['Close']
-  })
 }

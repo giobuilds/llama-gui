@@ -37,6 +37,7 @@ export const IPC = {
   profileGet: 'profiles:get',
   profileList: 'profiles:list',
   profileForget: 'profiles:forget',
+  appAbout: 'app:about',
   readerOpen: 'reader:open',
   readerClose: 'reader:close',
   readerBack: 'reader:back',

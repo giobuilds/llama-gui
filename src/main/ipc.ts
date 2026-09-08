@@ -1,4 +1,5 @@
-import { ipcMain, dialog, BrowserWindow , type WebContents } from 'electron'
+import { ipcMain, dialog, BrowserWindow, type WebContents } from 'electron'
+import { createRequire } from 'node:module'
 import { ZodError } from 'zod'
 import type {
   BenchResult,
@@ -19,6 +20,7 @@ import type {
   LogLine,
   ModelEntryView,
   McpServerState,
+  AboutView,
   McpSnapshot,
   ReaderState,
   ToolDefinition,
@@ -444,6 +446,23 @@ export function registerIpc(
   // Built-in and MCP tools are one list: the model cannot tell them apart, and
   // the only thing that differs for the user is where a tool came from.
   handle<ToolDefinition[]>(IPC.toolsList, () => [...BUILT_IN_TOOLS, ...mcp.tools()])
+
+  handle<AboutView>(IPC.appAbout, () => {
+    // Run unpackaged, Electron reports itself rather than the app, so the
+    // manifest is the honest source in both cases — it ships inside the asar.
+    const manifest = createRequire(import.meta.url)('../../package.json') as {
+      productName?: string
+      name: string
+      version: string
+    }
+    return {
+      name: manifest.productName ?? manifest.name,
+      version: manifest.version,
+      electron: process.versions.electron,
+      chrome: process.versions.chrome,
+      node: process.versions.node
+    }
+  })
 
   // Pages open in a pane with no preload rather than in the app window, which
   // would hand a remote page the whole bridge below.

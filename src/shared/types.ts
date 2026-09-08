@@ -315,6 +315,15 @@ export interface McpServerState {
   log: string[]
 }
 
+/** What the app knows about itself, for the About panel. */
+export interface AboutView {
+  name: string
+  version: string
+  electron: string
+  chrome: string
+  node: string
+}
+
 /** The reading pane, which lives in the main process because it is not part of the page. */
 export interface ReaderState {
   open: boolean

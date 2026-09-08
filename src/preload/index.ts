@@ -23,6 +23,7 @@ import type {
   ModelEntryView,
   McpServerConfig,
   McpServerState,
+  AboutView,
   McpSnapshot,
   ReaderState,
   ToolDefinition,
@@ -123,6 +124,10 @@ const api = {
     get: (modelPath: string) => invoke<LaunchProfileView | null>(IPC.profileGet, modelPath),
     list: () => invoke<LaunchProfileView[]>(IPC.profileList),
     forget: (modelPath: string) => invoke<null>(IPC.profileForget, modelPath)
+  },
+  app: {
+    /** Name, version and the runtimes underneath, for the About panel. */
+    about: () => invoke<AboutView>(IPC.appAbout)
   },
   reader: {
     /** Open a page in the sandboxed pane. Never navigates this window. */
