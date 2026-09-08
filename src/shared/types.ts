@@ -140,6 +140,15 @@ export interface LogLine {
  */
 export type BinaryKind = 'llama-server' | 'unified'
 
+/** One documented option, exactly as the installed binary describes it. */
+export interface FlagDocView {
+  names: string
+  argument: string
+  description: string
+  section: string
+  env: string | null
+}
+
 /** Result of probing an installed llama.cpp. */
 export interface BinaryInfo {
   /** Resolved absolute path to the executable. */
@@ -151,6 +160,8 @@ export interface BinaryInfo {
   version: string
   /** Long flag names the binary advertises in --help, e.g. "--flash-attn". */
   flags: string[]
+  /** Every option with its own description, for the in-app reference. */
+  flagDocs: FlagDocView[]
   /**
    * Newer builds take `--flash-attn on|off|auto`; older ones treat it as a bare
    * boolean. Passing the wrong form makes the server exit before it starts.

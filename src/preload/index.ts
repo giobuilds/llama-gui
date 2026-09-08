@@ -87,6 +87,10 @@ const api = {
     list: () => invoke<DownloadJob[]>(IPC.downloadList),
     onChanged: (cb: (job: DownloadJob) => void) => subscribe(IPC.downloadChanged, cb)
   },
+  menu: {
+    /** Menu items ask the renderer to do what the UI already does. */
+    onAction: (cb: (action: string) => void) => subscribe<string>(IPC.menuAction, cb)
+  },
   machine: {
     /** What has been measured about this machine, and what is still assumed. */
     profile: () => invoke<MachineProfileView>(IPC.machineProfile)

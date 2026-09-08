@@ -4,6 +4,8 @@ export const IPC = {
   serverStop: 'server:stop',
   serverStatus: 'server:status',
   serverStatusChanged: 'server:status-changed',
+  /** Menu items act by asking the renderer to do what the UI already does. */
+  menuAction: 'menu:action',
   logsSince: 'logs:since',
   logsChanged: 'logs:changed',
   binaryInfo: 'binary:info',
