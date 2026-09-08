@@ -1,4 +1,5 @@
-import { readdir, readFile, writeFile, rm, mkdir } from 'node:fs/promises'
+import { readdir, readFile, rm, mkdir } from 'node:fs/promises'
+import { writeFileAtomic, WriteQueue } from './atomicWrite.js'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
@@ -72,6 +73,9 @@ export interface ConversationSummary {
 }
 
 export class ConversationStore {
+  /** One conversation can be saved from several places at once while streaming. */
+  private readonly writes = new WriteQueue()
+
   constructor(private readonly dir: string) {}
 
   private file(id: string): string {
@@ -123,8 +127,9 @@ export class ConversationStore {
 
   async save(conversation: Conversation): Promise<Conversation> {
     const parsed = conversationSchema.parse({ ...conversation, updatedAt: Date.now() })
-    await mkdir(this.dir, { recursive: true })
-    await writeFile(this.file(parsed.id), JSON.stringify(parsed, null, 2), 'utf8')
+    await this.writes.run(() =>
+      writeFileAtomic(this.file(parsed.id), JSON.stringify(parsed, null, 2))
+    )
     return parsed
   }
 
