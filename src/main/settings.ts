@@ -1,5 +1,6 @@
-import { readFile, writeFile } from 'node:fs/promises'
+import { readFile } from 'node:fs/promises'
 import { z } from 'zod'
+import { writeFileAtomic, WriteQueue } from './atomicWrite.js'
 import { addSample, calibrationSchema, EMPTY_CALIBRATION, type Calibration, type Sample } from './calibration.js'
 
 const settingsSchema = z.object({
@@ -42,6 +43,8 @@ const DEFAULTS: Settings = { modelDirs: [], calibration: EMPTY_CALIBRATION, down
 /** Small JSON-backed settings file. Corrupt or missing files fall back to defaults. */
 export class SettingsStore {
   private cache: Settings = DEFAULTS
+  /** Serialises writes so one never lands on top of another. */
+  private readonly writes = new WriteQueue()
 
   constructor(private readonly path: string) {}
 
@@ -74,7 +77,7 @@ export class SettingsStore {
 
   async patch(patch: Partial<Settings>): Promise<Settings> {
     this.cache = settingsSchema.parse({ ...this.cache, ...patch })
-    await writeFile(this.path, JSON.stringify(this.cache, null, 2), 'utf8')
+    await this.writes.run(() => writeFileAtomic(this.path, JSON.stringify(this.cache, null, 2)))
     return this.cache
   }
 }

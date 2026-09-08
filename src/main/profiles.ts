@@ -1,6 +1,7 @@
-import { readFile, writeFile, mkdir, stat } from 'node:fs/promises'
+import { readFile, stat } from 'node:fs/promises'
 import { dirname, basename } from 'node:path'
 import { z } from 'zod'
+import { writeFileAtomic, WriteQueue } from './atomicWrite.js'
 import { launchConfigSchema } from '@shared/schema.js'
 
 /**
@@ -54,6 +55,8 @@ export async function modelKey(modelPath: string): Promise<string> {
 
 export class ProfileStore {
   private cache: z.infer<typeof fileSchema> = { version: 1, profiles: {} }
+  /** Serialises writes so one never lands on top of another. */
+  private readonly writes = new WriteQueue()
 
   constructor(private readonly path: string) {}
 
@@ -86,7 +89,6 @@ export class ProfileStore {
   }
 
   private async flush(): Promise<void> {
-    await mkdir(dirname(this.path), { recursive: true })
-    await writeFile(this.path, JSON.stringify(this.cache, null, 2), 'utf8')
+    await this.writes.run(() => writeFileAtomic(this.path, JSON.stringify(this.cache, null, 2)))
   }
 }
