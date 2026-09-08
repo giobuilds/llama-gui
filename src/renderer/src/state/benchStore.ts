@@ -19,6 +19,15 @@ export interface SweepPreset {
 
 export const PRESETS: SweepPreset[] = [
   {
+    id: 'calibrate',
+    label: 'Calibrate this machine',
+    description:
+      'Measures generation with everything on the GPU and again with nothing on it. ' +
+      'The CPU figure is what decides whether a large mixture-of-experts model is usable, ' +
+      'and it cannot be guessed from the hardware.',
+    build: () => ({ gpuLayers: [0, 999] })
+  },
+  {
     id: 'flash-attn',
     label: 'Flash attention',
     description: 'On versus off. Usually a clear win, but not on every backend.',

@@ -1,7 +1,9 @@
 import { ipcMain, dialog, BrowserWindow } from 'electron'
 import { ZodError } from 'zod'
 import type {
+  BenchResult,
   BenchRunView,
+  MachineProfileView,
   BinaryInfo,
   ConversationSummaryView,
   ConversationView,
@@ -37,6 +39,9 @@ import {
   type DownloadManager
 } from './downloads.js'
 import { estimateRepoFit } from './remoteFit.js'
+import { activeParameters, type MachineProfile } from './speed.js'
+import { derive } from './calibration.js'
+import { totalmem } from 'node:os'
 import { BenchRunner } from './bench.js'
 import { benchRequestSchema } from '@shared/schema.js'
 import { downloadRequestSchema } from '@shared/schema.js'
@@ -186,7 +191,22 @@ export function registerIpc(
     if (supervisor.status.pid !== null) {
       throw new Error('Stop the running server before testing the binary.')
     }
-    return runHealthCheck(supervisor.binaryInfo, req.modelPath, req.gpuLayers)
+    const result = await runHealthCheck(supervisor.binaryInfo, req.modelPath, req.gpuLayers)
+    // The check already generated tokens against a model of known size, which
+    // is exactly a bandwidth measurement — no separate calibration step needed.
+    if (result.ok && result.tokensPerSecond) {
+      const model = (await listModels(false)).find((m) => m.path === req.modelPath)
+      const params = model ? activeParameters(model) : null
+      if (model && params) {
+        await settings.observe({
+          activeBytes: model.fileSize * (params.active / params.total),
+          secondsPerToken: 1 / result.tokensPerSecond,
+          onGpu: req.gpuLayers > 0 && supervisor.binaryInfo.devices.length > 0
+        })
+        repoFitCache.clear()
+      }
+    }
+    return result
   })
 
   handle<string | null>(IPC.pickModelDir, async () => {
@@ -210,6 +230,28 @@ export function registerIpc(
    * they are cached per repo. The answer only changes if the binary does, which
    * the key accounts for.
    */
+  /**
+   * The machine's measured throughput, learned from health checks and
+   * benchmarks. Without a GPU sample no speed is predicted, rather than one
+   * being invented from a specification sheet.
+   */
+  const machineProfile = (): MachineProfile | undefined => {
+    const derived = derive(settings.current.calibration)
+    if (!derived.gpuBytesPerSecond && !derived.cpuBytesPerSecond) return undefined
+    const devices = supervisor.binaryInfo.devices
+    const freeVram = devices[0]?.freeMiB ?? 0
+    return {
+      gpuBytesPerSecond: derived.gpuBytesPerSecond,
+      // Until a CPU-only run has been measured this is a stand-in, and it is the
+      // figure that decides whether a large mixture of experts is usable, so the
+      // UI says plainly when it has not been measured.
+      cpuBytesPerSecond: derived.cpuBytesPerSecond ?? 20e9,
+      vramBytes: freeVram * 1024 * 1024,
+      ramBytes: totalmem() * 0.65,
+      overheadCeilingTokensPerSecond: derived.ceilingTokensPerSecond ?? 600
+    }
+  }
+
   const repoFitCache = new Map<string, RemoteFit[]>()
   handle<RemoteFit[]>(IPC.hfFit, async (rawRepo) => {
     const repo = String(rawRepo ?? '')
@@ -227,7 +269,7 @@ export function registerIpc(
     } catch {
       freeMiB = null
     }
-    const fits = await estimateRepoFit(repo, files, freeMiB, binary)
+    const fits = await estimateRepoFit(repo, files, freeMiB, binary, machineProfile())
     repoFitCache.set(key, fits)
     return fits
   })
@@ -273,13 +315,59 @@ export function registerIpc(
   })
   bench.on('done', (results) => {
     if (!benchRun) return
+    const request = benchRun.request
     benchRun = { ...benchRun, results, state: 'done', progress: null, finishedAt: Date.now() }
     pushBench()
+    // A benchmark is the most accurate measurement this app can take, and a
+    // sweep that includes -ngl 0 measures the CPU side too. Throwing that away
+    // and asking the user to calibrate separately would be perverse.
+    void absorbBenchResults(request.modelPath, results).catch(() => {})
   })
+
+  /**
+   * Turn generation rows into calibration samples. Prompt-processing rows are
+   * ignored: they are compute-bound rather than bandwidth-bound, so they say
+   * nothing about how fast weights can be read.
+   */
+  const absorbBenchResults = async (
+    modelPath: string,
+    results: BenchResult[]
+  ): Promise<void> => {
+    const model = (await listModels(false)).find((m) => m.path === modelPath)
+    const params = model ? activeParameters(model) : null
+    if (!model || !params) return
+    const activeBytes = model.fileSize * (params.active / params.total)
+    const hasGpu = supervisor.binaryInfo.devices.length > 0
+
+    for (const row of results) {
+      if (row.kind !== 'generation' || row.tokensPerSecond <= 0) continue
+      await settings.observe({
+        activeBytes,
+        secondsPerToken: 1 / row.tokensPerSecond,
+        // llama-bench reports -1 for "every layer", 0 for none.
+        onGpu: hasGpu && row.gpuLayers !== 0
+      })
+    }
+    repoFitCache.clear()
+  }
   bench.on('failed', (error) => {
     if (!benchRun) return
     benchRun = { ...benchRun, state: 'failed', error, progress: null, finishedAt: Date.now() }
     pushBench()
+  })
+
+  handle<MachineProfileView>(IPC.machineProfile, () => {
+    const derived = derive(settings.current.calibration)
+    return {
+      gpuBytesPerSecond: derived.gpuBytesPerSecond,
+      cpuBytesPerSecond: derived.cpuBytesPerSecond,
+      ceilingTokensPerSecond: derived.ceilingTokensPerSecond,
+      gpuSamples: derived.gpuSamples,
+      cpuSamples: derived.cpuSamples,
+      vramBytes: (supervisor.binaryInfo.devices[0]?.freeMiB ?? 0) * 1024 * 1024,
+      ramBytes: totalmem(),
+      cpuAssumed: derived.cpuBytesPerSecond === null
+    }
   })
 
   handle<BenchRunView>(IPC.benchStart, (raw) => {

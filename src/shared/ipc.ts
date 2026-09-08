@@ -22,6 +22,7 @@ export const IPC = {
   downloadCancel: 'download:cancel',
   downloadList: 'download:list',
   downloadChanged: 'download:changed',
+  machineProfile: 'machine:profile',
   benchStart: 'bench:start',
   benchCancel: 'bench:cancel',
   benchState: 'bench:state',

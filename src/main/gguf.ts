@@ -73,6 +73,19 @@ export interface GgufMetadata {
    * they cannot be launched on their own.
    */
   isProjector: boolean
+  /** Feed-forward width. In a mixture of experts this describes the expert block. */
+  feedForwardLength: number | null
+  /**
+   * Explicit attention head dimensions. Some models set these larger than
+   * embedding/head_count — Qwen3 uses 128 where the division implies 64 — so
+   * assuming the division understates the attention weights by half.
+   */
+  keyLength: number | null
+  valueLength: number | null
+  /** Mixture-of-experts shape. Null on a dense model. */
+  expertCount: number | null
+  expertUsedCount: number | null
+  expertFeedForwardLength: number | null
 }
 
 class Cursor {
@@ -176,10 +189,21 @@ function readValue(c: Cursor, type: number): GgufValue {
  * hundreds of thousands of strings, and none of the fields this app needs live
  * inside an array.
  */
-/** Returns the element count so callers can record it (e.g. vocabulary size). */
-function skipArray(c: Cursor): number {
+/**
+ * Skips an array's contents, reporting its length through `onCount` before the
+ * skip is attempted.
+ *
+ * The length is announced early on purpose: a truncated header — as when only
+ * the first megabyte has been fetched over HTTP — will throw partway through a
+ * large tokenizer array, and the vocabulary size would be lost with it. It is
+ * stored in the header before the strings themselves, so it is knowable even
+ * when they are not, and a large vocabulary matters: the output projection is
+ * read for every token generated.
+ */
+function skipArray(c: Cursor, onCount: (count: number) => void): number {
   const elemType = c.u32()
   const count = c.u64()
+  onCount(count)
   if (elemType === Gt.STRING) {
     for (let i = 0; i < count; i++) c.str()
     return count
@@ -239,7 +263,7 @@ export function parseGgufHeader(buf: Buffer, options: ParseOptions = {}): GgufHe
       if (type === Gt.ARRAY) {
         // Contents are skipped, but the length is kept — it is the only way to
         // learn the vocabulary size without materialising 150k strings.
-        arrayLengths.set(key, skipArray(c))
+        skipArray(c, (count) => arrayLengths.set(key, count))
         kv.set(key, null)
       } else {
         kv.set(key, readValue(c, type))
@@ -332,7 +356,15 @@ export async function readGgufMetadata(path: string): Promise<GgufMetadata> {
         (typeof sizeLabel === 'string' ? parseSizeLabel(sizeLabel) : null),
       hasChatTemplate: kv.has('tokenizer.chat_template'),
       vocabSize: arrayLengths.get('tokenizer.ggml.tokens') ?? null,
-      isProjector: isProjectorHeader(arch, kv.get('general.type'), basename(path))
+      isProjector: isProjectorHeader(arch, kv.get('general.type'), basename(path)),
+      feedForwardLength: num(kv.get(`${arch}.feed_forward_length`)),
+      keyLength: num(kv.get(`${arch}.attention.key_length`)),
+      valueLength: num(kv.get(`${arch}.attention.value_length`)),
+      // Present only on a mixture of experts, and the reason such a model reads
+      // far less per token than its size suggests.
+      expertCount: num(kv.get(`${arch}.expert_count`)),
+      expertUsedCount: num(kv.get(`${arch}.expert_used_count`)),
+      expertFeedForwardLength: num(kv.get(`${arch}.expert_feed_forward_length`))
     }
   } finally {
     await fh.close()

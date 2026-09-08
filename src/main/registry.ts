@@ -183,6 +183,12 @@ async function describe(path: string): Promise<ModelEntry> {
       hasChatTemplate: false,
       vocabSize: null,
       isProjector: /^mmproj[-_.]/i.test(path.split('/').pop() ?? ''),
+      feedForwardLength: null,
+      keyLength: null,
+      valueLength: null,
+      expertCount: null,
+      expertUsedCount: null,
+      expertFeedForwardLength: null,
       mtimeMs,
       error: err instanceof Error ? err.message : String(err)
     }

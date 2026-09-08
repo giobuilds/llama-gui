@@ -8,6 +8,7 @@ import type {
   GpuDevice,
   BenchRequest,
   BenchRunView,
+  MachineProfileView,
   DownloadJob,
   HealthCheckResult,
   HfFile,
@@ -85,6 +86,10 @@ const api = {
     cancel: (id: string) => invoke<null>(IPC.downloadCancel, id),
     list: () => invoke<DownloadJob[]>(IPC.downloadList),
     onChanged: (cb: (job: DownloadJob) => void) => subscribe(IPC.downloadChanged, cb)
+  },
+  machine: {
+    /** What has been measured about this machine, and what is still assumed. */
+    profile: () => invoke<MachineProfileView>(IPC.machineProfile)
   },
   bench: {
     start: (request: BenchRequest) => invoke<BenchRunView>(IPC.benchStart, request),

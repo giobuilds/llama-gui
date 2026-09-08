@@ -5,7 +5,7 @@ import {
   useDownloadStore
 } from '../state/downloadStore.js'
 import { useServerStore } from '../state/serverStore.js'
-import type { DownloadJob, FitVerdict, HfFile, RemoteFit } from '@shared/types.js'
+import type { Comfort, DownloadJob, FitVerdict, HfFile, RemoteFit } from '@shared/types.js'
 
 const mb = (b: number): string =>
   b >= 1e9 ? `${(b / 1e9).toFixed(2)} GB` : `${Math.round(b / 1e6)} MB`
@@ -121,10 +121,11 @@ export function Downloads(): React.JSX.Element {
                             Sort
                             <select
                               value={sortBy}
-                              onChange={(e) => setSortBy(e.target.value as 'size' | 'fit')}
+                              onChange={(e) => setSortBy(e.target.value as 'size' | 'fit' | 'speed')}
                               className="rounded border border-edge bg-ink px-1 py-0.5 text-[11px] outline-none focus:border-accent"
                             >
                               <option value="fit">best fit</option>
+                              <option value="speed">fastest</option>
                               <option value="size">size</option>
                             </select>
                           </label>
@@ -193,7 +194,7 @@ export function Downloads(): React.JSX.Element {
 function orderFiles(
   files: HfFile[],
   fits: Record<string, RemoteFit>,
-  sortBy: 'size' | 'fit',
+  sortBy: 'size' | 'fit' | 'speed',
   onlyFitting: boolean
 ): HfFile[] {
   // Projectors are downloaded with their model, never chosen on their own.
@@ -207,6 +208,11 @@ function orderFiles(
       })
     : choosable
   if (sortBy === 'size') return [...visible].sort((a, b) => a.size - b.size)
+  if (sortBy === 'speed') {
+    return [...visible].sort(
+      (a, b) => (fits[b.path]?.tokensPerSecond ?? -1) - (fits[a.path]?.tokensPerSecond ?? -1)
+    )
+  }
   return [...visible].sort((a, b) => {
     const va = fits[a.path]?.verdict ?? 'unknown'
     const vb = fits[b.path]?.verdict ?? 'unknown'
@@ -218,6 +224,19 @@ function orderFiles(
     // is more of the model spilling onto the CPU.
     return va === 'full' ? b.size - a.size : a.size - b.size
   })
+}
+
+/**
+ * How a speed feels in conversation. Reading pace is roughly 5-10 tokens a
+ * second, so above that the model keeps up with a person and below it waiting
+ * becomes the experience.
+ */
+const COMFORT_STYLE: Record<Comfort, { className: string; title: string }> = {
+  fast: { className: 'text-emerald-300', title: 'Faster than you can read' },
+  comfortable: { className: 'text-emerald-200', title: 'Keeps up with reading' },
+  slow: { className: 'text-amber-300', title: 'Noticeably slower than reading' },
+  painful: { className: 'text-rose-300', title: 'Slow enough to be frustrating' },
+  unknown: { className: 'text-muted', title: 'Not enough measurements yet to predict' }
 }
 
 const FIT_STYLE: Record<FitVerdict, { label: string; className: string; title: string }> = {
@@ -279,6 +298,25 @@ function FileRow({
         )}
       </span>
 
+      {fit?.tokensPerSecond != null && (
+        <span
+          className={`shrink-0 text-[11px] tabular-nums ${COMFORT_STYLE[fit.comfort].className}`}
+          title={
+            `${COMFORT_STYLE[fit.comfort].title}. ` +
+            fit.speedNotes.join(' ')
+          }
+        >
+          ~{Math.round(fit.tokensPerSecond)} tok/s
+        </span>
+      )}
+      {fit?.moe && (
+        <span
+          className="shrink-0 rounded bg-violet-900/50 px-1 text-[10px] text-violet-200"
+          title="Mixture of experts — reads only a fraction of its weights per token, so it runs far faster than its size suggests"
+        >
+          MoE
+        </span>
+      )}
       <span
         className={`shrink-0 rounded px-1.5 text-[10px] ${style.className}`}
         title={

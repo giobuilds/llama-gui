@@ -1,7 +1,10 @@
 import { readFile, writeFile } from 'node:fs/promises'
 import { z } from 'zod'
+import { addSample, calibrationSchema, EMPTY_CALIBRATION, type Calibration, type Sample } from './calibration.js'
 
 const settingsSchema = z.object({
+  /** Measurements of this machine, learned from runs the app already performs. */
+  calibration: calibrationSchema.default(EMPTY_CALIBRATION),
   /** Explicit llama.cpp binary chosen by the user, overriding auto-discovery. */
   binaryPath: z.string().optional(),
   /** Extra directories to scan for GGUF files, beyond the defaults. */
@@ -9,8 +12,9 @@ const settingsSchema = z.object({
 })
 
 export type Settings = z.infer<typeof settingsSchema>
+export type { Calibration }
 
-const DEFAULTS: Settings = { modelDirs: [] }
+const DEFAULTS: Settings = { modelDirs: [], calibration: EMPTY_CALIBRATION }
 
 /** Small JSON-backed settings file. Corrupt or missing files fall back to defaults. */
 export class SettingsStore {
@@ -29,6 +33,20 @@ export class SettingsStore {
 
   get current(): Settings {
     return this.cache
+  }
+
+  /**
+   * Record a measurement of this machine.
+   *
+   * Bandwidth needs weights read per token and the time it took; two samples of
+   * different sizes also separate fixed per-token overhead from bandwidth, which
+   * is what sets the ceiling for small models.
+   */
+  async observe(sample: Omit<Sample, 'at'>): Promise<void> {
+    if (sample.secondsPerToken <= 0 || sample.activeBytes <= 0) return
+    await this.patch({
+      calibration: addSample(this.cache.calibration, { ...sample, at: Date.now() })
+    })
   }
 
   async patch(patch: Partial<Settings>): Promise<Settings> {

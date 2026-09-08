@@ -13,7 +13,7 @@ interface DownloadState {
   /** Fit estimate per file in the expanded repo, keyed by file path. */
   fits: Record<string, RemoteFit>
   fitsLoading: boolean
-  sortBy: 'size' | 'fit'
+  sortBy: 'size' | 'fit' | 'speed'
   onlyFitting: boolean
   jobs: DownloadJob[]
   error: string | null
@@ -21,7 +21,7 @@ interface DownloadState {
   setQuery: (q: string) => void
   search: () => Promise<void>
   expand: (repo: string) => Promise<void>
-  setSortBy: (by: 'size' | 'fit') => void
+  setSortBy: (by: 'size' | 'fit' | 'speed') => void
   setOnlyFitting: (only: boolean) => void
   start: (repo: string, file: HfFile) => Promise<void>
   cancel: (id: string) => Promise<void>
