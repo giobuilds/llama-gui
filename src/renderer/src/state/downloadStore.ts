@@ -25,6 +25,8 @@ interface DownloadState {
   setOnlyFitting: (only: boolean) => void
   start: (repo: string, file: HfFile) => Promise<void>
   cancel: (id: string) => Promise<void>
+  forget: (id: string) => Promise<void>
+  clearFinished: () => Promise<void>
   refreshJobs: () => Promise<void>
   clearError: () => void
 }
@@ -105,6 +107,27 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
       await window.llama.downloads.cancel(id)
     } catch (err) {
       set({ error: (err as Error).message })
+    }
+  },
+
+  /** Remove one entry from the list. The downloaded file is untouched. */
+  async forget(id) {
+    set((s) => ({ jobs: s.jobs.filter((j) => j.id !== id) }))
+    try {
+      await window.llama.downloads.forget(id)
+    } catch (err) {
+      set({ error: (err as Error).message })
+      await get().refreshJobs()
+    }
+  },
+
+  async clearFinished() {
+    set((s) => ({ jobs: s.jobs.filter((j) => j.state === 'running' || j.state === 'queued') }))
+    try {
+      await window.llama.downloads.clearFinished()
+    } catch (err) {
+      set({ error: (err as Error).message })
+      await get().refreshJobs()
     }
   },
 

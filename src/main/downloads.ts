@@ -143,7 +143,9 @@ export class DownloadManager extends EventEmitter<DownloadEvents> {
   constructor(
     private binary: () => BinaryInfo,
     /** Persists finished jobs so the list survives a restart. */
-    private readonly onFinished: (job: DownloadJob) => void = () => {}
+    private readonly onFinished: (job: DownloadJob) => void = () => {},
+    /** Called when an entry is dismissed, so the stored history follows. */
+    private readonly onForget: (id: string) => void = () => {}
   ) {
     super()
   }
@@ -190,6 +192,27 @@ export class DownloadManager extends EventEmitter<DownloadEvents> {
       ...this.queued.map((q) => q.job),
       ...this.finished
     ].sort((a, b) => b.startedAt - a.startedAt)
+  }
+
+  /**
+   * Remove a finished entry from the list.
+   *
+   * The panel is a record of what was fetched, but a record nobody can clear
+   * becomes clutter: an entry for a cancelled attempt stays visible long after
+   * it stopped meaning anything. Only finished jobs can be forgotten — a
+   * running one has to be cancelled first, or the transfer would carry on with
+   * nothing showing it.
+   */
+  forget(id: string): void {
+    const before = this.finished.length
+    this.finished = this.finished.filter((j) => j.id !== id)
+    if (this.finished.length !== before) this.onForget(id)
+  }
+
+  /** Clear everything that is no longer running or queued. */
+  clearFinished(): void {
+    for (const job of this.finished) this.onForget(job.id)
+    this.finished = []
   }
 
   private isRepoBusy(repo: string): boolean {
