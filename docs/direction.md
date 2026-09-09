@@ -157,7 +157,9 @@ that line, not just a preference.
 ## Sequence
 
 The coding architecture has Stages 0–4; the compaction plan has M0–M5. They
-interleave rather than queue.
+interleave rather than queue. The stages themselves — tasks, gates, non-goals —
+are in [Coding: the plan](coding-plan.md); this table only says what lands
+together.
 
 | stage | coding architecture | compaction plan | why here |
 |---|---|---|---|

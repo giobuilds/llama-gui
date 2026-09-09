@@ -142,7 +142,7 @@ npm dependencies, so there is no rebuild step to break on an Electron bump.
 
 ## Design notes
 
-Three documents, meant to be read in this order:
+Four documents, meant to be read in this order:
 
 - [Lowerbeam Coding Architecture](docs/Lowerbeam_Coding_Architecture.pdf) — a
   project-scoped coding agent runtime: permission broker, sandbox, durable
@@ -151,6 +151,9 @@ Three documents, meant to be read in this order:
   summaries with a typed, checkable record of a conversation.
 - [Direction](docs/direction.md) — how the two fit: one schema, the journal as
   the record compaction is checked against, and the order to build it in.
+- [Coding: the plan](docs/coding-plan.md) — what is actually committed to from
+  the architecture, stage by stage, with the trial that picks the engine and
+  the gates each stage has to pass.
 
 None of this is built yet; the reasoning and the measurements are written down
 so the work can start from something.
