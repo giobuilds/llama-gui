@@ -33,6 +33,7 @@ export type JournalEvent =
       task: string
       model: string
       grantRoot: string
+      mode?: CodingMode
     })
   | (Base & {
       type: 'model.request'
@@ -87,11 +88,42 @@ export type RunOutcome =
   | 'cancelled'
   | 'error'
 
+/**
+ * What a run may do. `inspect` is list, search and read inside the project.
+ * `edit` adds write_file and edit_file — against an isolated copy of the
+ * project, never the project itself; the person applies the result.
+ */
+export type CodingMode = 'inspect' | 'edit'
+
+export type ChangeKind = 'created' | 'modified' | 'deleted'
+
+export interface FileChange {
+  path: string
+  kind: ChangeKind
+  /** A unified diff against the baseline, or '(binary)'. Empty for a deletion. */
+  diff: string
+}
+
+export interface ChangeSet {
+  files: FileChange[]
+  /** When the baseline was taken, so "since the run began" has a time. */
+  baselineAt: number
+}
+
+export interface ApplyResult {
+  applied: string[]
+  /** Files left alone, and why. Nothing is merged and nothing is guessed. */
+  conflicts: Array<{ path: string; reason: string }>
+}
+
 /** What the interface needs to list runs and show one, without the whole journal. */
 export interface CodingRunSummary {
   id: string
   task: string
   projectRoot: string
+  mode: CodingMode
+  /** Set once an edit run's changes have been applied to the project. */
+  appliedAt: number | null
   model: string
   startedAt: number
   finishedAt: number | null
@@ -104,6 +136,7 @@ export interface CodingRunSummary {
 export interface CodingStartRequest {
   projectRoot: string
   task: string
+  mode: CodingMode
 }
 
 /** What a tool hands back to the loop. Text is what the model sees; the rest is for the journal. */

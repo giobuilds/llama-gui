@@ -1,5 +1,5 @@
-import { useEffect, useMemo } from 'react'
-import type { CodingRunSummary, JournalEvent } from '@shared/coding.js'
+import { useEffect, useMemo, useState } from 'react'
+import type { ChangeSet, CodingRunSummary, JournalEvent } from '@shared/coding.js'
 import { useCodingStore } from '../state/codingStore.js'
 import { useServerStore } from '../state/serverStore.js'
 import { renderMarkdown } from '../api/markdown.js'
@@ -44,10 +44,7 @@ export function Coding(): React.JSX.Element {
           >
             {project ? project.split('/').slice(-2).join('/') : 'Choose a folder…'}
           </button>
-          <p className="mt-2 text-[11px] text-muted">
-            <span className="rounded bg-ink px-1.5 py-0.5 text-emerald-200">inspect</span>{' '}
-            read-only, inside this folder
-          </p>
+          <ModeBadge />
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto">
           {runs.length === 0 && <p className="p-3 text-[11px] text-muted">No runs yet.</p>}
@@ -92,6 +89,7 @@ function Composer({ disabled, modelName }: { disabled: boolean; modelName: strin
   const setTask = useCodingStore((s) => s.setTask)
   const start = useCodingStore((s) => s.start)
   const cancel = useCodingStore((s) => s.cancel)
+  const mode = useCodingStore((s) => s.mode)
   const running = useCodingStore((s) => s.runs.some((r) => r.outcome === 'running'))
 
   return (
@@ -134,13 +132,56 @@ function Composer({ disabled, modelName }: { disabled: boolean; modelName: strin
           </button>
         )}
       </div>
-      {modelName && (
-        <p className="mt-1.5 text-[11px] text-muted">
-          Using <span className="text-slate-300">{modelName}</span>. The model can list, search and read
-          files in the project; it cannot change anything or run anything.
-        </p>
-      )}
+      <div className="mt-2 flex items-center gap-3">
+        <ModeToggle disabled={running} />
+        {modelName && (
+          <p className="text-[11px] text-muted">
+            Using <span className="text-slate-300">{modelName}</span>.{' '}
+            {mode === 'edit'
+              ? 'Edits go to a copy of the project; you apply them, or not, from the Changes panel.'
+              : 'The model can list, search and read files in the project; it cannot change anything.'}
+          </p>
+        )}
+      </div>
     </div>
+  )
+}
+
+function ModeToggle({ disabled }: { disabled: boolean }): React.JSX.Element {
+  const mode = useCodingStore((s) => s.mode)
+  const setMode = useCodingStore((s) => s.setMode)
+  const option = (value: 'inspect' | 'edit', label: string): React.JSX.Element => (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={() => setMode(value)}
+      className={`rounded px-2 py-0.5 text-[11px] ${
+        mode === value ? 'bg-ink text-slate-100' : 'text-muted hover:text-slate-200'
+      } disabled:opacity-50`}
+    >
+      {label}
+    </button>
+  )
+  return (
+    <div className="flex items-center gap-1 rounded border border-edge p-0.5">
+      {option('inspect', 'Inspect')}
+      {option('edit', 'Edit in a copy')}
+    </div>
+  )
+}
+
+function ModeBadge(): React.JSX.Element {
+  const mode = useCodingStore((s) => s.mode)
+  return mode === 'edit' ? (
+    <p className="mt-2 text-[11px] text-muted">
+      <span className="rounded bg-ink px-1.5 py-0.5 text-amber-200">edit</span> in a copy — nothing
+      reaches the project until you apply it
+    </p>
+  ) : (
+    <p className="mt-2 text-[11px] text-muted">
+      <span className="rounded bg-ink px-1.5 py-0.5 text-emerald-200">inspect</span> read-only, inside
+      this folder
+    </p>
   )
 }
 
@@ -202,7 +243,111 @@ function Run({ run }: { run: CodingRunSummary }): React.JSX.Element {
           />
         </div>
       )}
+
+      {run.mode === 'edit' && run.outcome !== 'running' && <Changes run={run} />}
     </div>
+  )
+}
+
+/**
+ * What an edit run changed, against the baseline its copy was taken from,
+ * and the three things a person can do about it. Apply writes each file back
+ * only if the project still holds what the baseline held; anything edited
+ * since is a conflict, listed and left alone.
+ */
+function Changes({ run }: { run: CodingRunSummary }): React.JSX.Element {
+  const changes = useCodingStore((s) => s.changes[run.id])
+  const result = useCodingStore((s) => s.applyResults[run.id])
+  const busy = useCodingStore((s) => Boolean(s.busy[run.id]))
+  const loadChanges = useCodingStore((s) => s.loadChanges)
+  const apply = useCodingStore((s) => s.apply)
+  const undo = useCodingStore((s) => s.undo)
+  const discard = useCodingStore((s) => s.discard)
+
+  useEffect(() => {
+    if (!changes) void loadChanges(run.id)
+  }, [changes, loadChanges, run.id])
+
+  if (!changes) return <p className="mt-4 text-[11px] text-muted">Comparing with the baseline…</p>
+
+  return (
+    <div className="mt-4">
+      <div className="mb-1 flex items-baseline gap-3">
+        <p className="text-[11px] font-medium text-muted">
+          Changes{changes.files.length ? ` · ${changes.files.length} file${changes.files.length === 1 ? '' : 's'}` : ''}
+        </p>
+        {run.appliedAt && <span className="text-[11px] text-emerald-300">applied to the project</span>}
+        <span className="ml-auto flex gap-2">
+          {run.appliedAt ? (
+            <button type="button" disabled={busy} onClick={() => void undo(run.id)} className="rounded border border-edge px-2 py-0.5 text-[11px] text-muted hover:text-slate-200 disabled:opacity-50">
+              Undo
+            </button>
+          ) : (
+            changes.files.length > 0 && (
+              <button type="button" disabled={busy} onClick={() => void apply(run.id)} className="rounded bg-accent px-2.5 py-0.5 text-[11px] font-medium text-ink disabled:opacity-50">
+                Apply to project
+              </button>
+            )
+          )}
+          <button type="button" disabled={busy || Boolean(run.appliedAt)} onClick={() => void discard(run.id)} className="rounded border border-edge px-2 py-0.5 text-[11px] text-muted hover:text-rose-300 disabled:opacity-50">
+            Discard copy
+          </button>
+        </span>
+      </div>
+
+      {changes.files.length === 0 && <p className="text-[11px] text-muted">The run changed nothing.</p>}
+
+      {result && (
+        <div className="mb-2 rounded border border-edge bg-panel p-2 text-[11px]">
+          {result.applied.length > 0 && <p className="text-emerald-300">{result.applied.length} file{result.applied.length === 1 ? '' : 's'}: {result.applied.join(', ')}</p>}
+          {result.conflicts.map((c) => (
+            <p key={c.path} className="text-amber-300">
+              {c.path} left alone — {c.reason}
+            </p>
+          ))}
+        </div>
+      )}
+
+      <ul className="space-y-2">
+        {changes.files.map((f) => (
+          <FileDiff key={f.path} change={f} />
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+function FileDiff({ change }: { change: ChangeSet['files'][number] }): React.JSX.Element {
+  const [open, setOpen] = useState(true)
+  const colour = change.kind === 'created' ? 'text-emerald-300' : change.kind === 'deleted' ? 'text-rose-300' : 'text-amber-200'
+  return (
+    <li className="rounded border border-edge bg-panel">
+      <button type="button" onClick={() => setOpen(!open)} className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs">
+        <span className={`w-16 shrink-0 text-[11px] ${colour}`}>{change.kind}</span>
+        <span className="truncate font-mono text-slate-200">{change.path}</span>
+        <span className="ml-auto text-[11px] text-muted">{open ? '▾' : '▸'}</span>
+      </button>
+      {open && change.diff && (
+        <pre className="max-h-96 overflow-auto border-t border-edge px-3 py-2 font-mono text-[11px] leading-snug">
+          {change.diff.split('\n').map((line, i) => (
+            <div
+              key={i}
+              className={
+                line.startsWith('+') && !line.startsWith('+++')
+                  ? 'text-emerald-300'
+                  : line.startsWith('-') && !line.startsWith('---')
+                    ? 'text-rose-300'
+                    : line.startsWith('@@')
+                      ? 'text-accent'
+                      : 'text-muted'
+              }
+            >
+              {line}
+            </div>
+          ))}
+        </pre>
+      )}
+    </li>
   )
 }
 

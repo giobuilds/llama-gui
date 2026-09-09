@@ -1,5 +1,6 @@
-import { open, readdir, readFile, stat } from 'node:fs/promises'
-import { join, relative, sep } from 'node:path'
+import { mkdir, open, readdir, readFile, stat, writeFile } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
+import { dirname, join, relative, sep } from 'node:path'
 import type { ToolDefinition } from '@shared/types.js'
 import type { AgentToolResult } from '@shared/coding.js'
 import { Grant } from './grant.js'
@@ -72,6 +73,52 @@ export const AGENT_TOOLS: ToolDefinition[] = [
   }
 ]
 
+/**
+ * The two write tools, declared only for an edit run and refused by the grant
+ * in any other. Both carry a precondition, because a write against a file
+ * that has changed underneath the model is how a patch lands in the wrong
+ * place: edit_file must match exactly once, write_file must be told the
+ * hash the file had when it was read.
+ */
+export const WRITE_TOOLS: ToolDefinition[] = [
+  {
+    name: 'edit_file',
+    label: 'Edit a file',
+    description:
+      'Replace one exact passage in a file. `find` must appear exactly once — ' +
+      'include enough surrounding lines to make it unique. Read the file first; ' +
+      'if the edit is refused as not found or ambiguous, read it again and retry ' +
+      'with the text as it actually is.',
+    parameters: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'File, relative to the project root.' },
+        find: { type: 'string', description: 'The exact text to replace, verbatim, including whitespace.' },
+        replace: { type: 'string', description: 'What to put in its place.' }
+      },
+      required: ['path', 'find', 'replace']
+    }
+  },
+  {
+    name: 'write_file',
+    label: 'Write a file',
+    description:
+      'Create a new file with the given content. To overwrite an existing file, ' +
+      'pass expected_sha256 from the header the read tool showed; a mismatch ' +
+      'means the file changed since and the write is refused. Prefer edit_file ' +
+      'for changes to existing files.',
+    parameters: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'File, relative to the project root.' },
+        content: { type: 'string', description: 'The whole content of the file.' },
+        expected_sha256: { type: 'string', description: 'Required to overwrite: the hash shown when the file was read.' }
+      },
+      required: ['path', 'content']
+    }
+  }
+]
+
 export async function runAgentTool(
   grant: Grant,
   name: string,
@@ -84,6 +131,10 @@ export async function runAgentTool(
       return search(grant, str(args.query), str(args.path) || '.')
     case 'read':
       return read(grant, str(args.path), int(args.start), int(args.end))
+    case 'edit_file':
+      return editFile(grant, str(args.path), str(args.find), str(args.replace))
+    case 'write_file':
+      return writeWholeFile(grant, str(args.path), str(args.content), str(args.expected_sha256))
     default:
       // Unknown tools fail closed: nothing is guessed at.
       return { ok: false, content: `There is no tool called ${name}.` }
@@ -193,7 +244,121 @@ async function read(
   }
   const tail =
     shown < lines.length ? `\n(lines ${shown + 1}–${lines.length} not shown; read from ${shown + 1} for more)` : ''
-  return { ok: true, content: `${resolved.relative} (${lines.length} lines)\n${out.join('\n')}${tail}` }
+  // The hash is what write_file has to quote back to overwrite: proof the
+  // model is writing over what it read, not over something newer.
+  const hash = createHash('sha256').update(text).digest('hex')
+  return { ok: true, content: `${resolved.relative} (${lines.length} lines, sha256 ${hash.slice(0, 16)})\n${out.join('\n')}${tail}` }
+}
+
+async function editFile(grant: Grant, path: string, find: string, replace: string): Promise<AgentToolResult> {
+  if (!path) return { ok: false, content: 'Give a path to edit.' }
+  if (!find) return { ok: false, content: 'Give the exact text to find.' }
+  const resolved = await grant.resolveForWrite(path)
+  if (!resolved.ok) return refusal(resolved)
+  const text = await readText(resolved.path)
+  if (text === null) return { ok: false, content: `${resolved.relative} does not exist or is not a text file. Use write_file to create a file.` }
+
+  // Exact first. Then tolerant of the one thing a model cannot see: a uniform
+  // indentation difference — it copies passages out of numbered read output
+  // and keeps a space where the line number was. The file's indentation is
+  // what is kept; the block's relative indentation is what the model chose.
+  const exact = locate(text, find)
+  const match = exact.count > 0 ? exact : locateIndented(text, find)
+  if (match.count === 0) {
+    return { ok: false, content: `Not found in ${resolved.relative}: the text to find does not appear. Read the file again and copy the passage exactly.` }
+  }
+  if (match.count > 1) {
+    return { ok: false, content: `Ambiguous in ${resolved.relative}: the text to find appears more than once. Include more surrounding lines so it is unique.` }
+  }
+  const replacement = match.indent === null ? replace : reindent(replace, find, match.indent)
+  const next = text.slice(0, match.start) + replacement + text.slice(match.end)
+  await writeFile(resolved.path, next)
+  const line = text.slice(0, match.start).split('\n').length
+  const note = match.indent === null ? '' : ' (indentation taken from the file)'
+  return { ok: true, content: `Edited ${resolved.relative} at line ${line}: ${find.split('\n').length} line(s) replaced by ${replace.split('\n').length}${note}.` }
+}
+
+interface Located {
+  count: number
+  start: number
+  end: number
+  /** The file's indentation of the matched block, when the match was tolerant; null when exact. */
+  indent: string | null
+}
+
+function locate(text: string, find: string): Located {
+  const first = text.indexOf(find)
+  if (first < 0) return { count: 0, start: 0, end: 0, indent: null }
+  const count = text.indexOf(find, first + 1) >= 0 ? 2 : 1
+  return { count, start: first, end: first + find.length, indent: null }
+}
+
+/** Match line by line with each side's common leading whitespace removed. */
+function locateIndented(text: string, find: string): Located {
+  const want = stripCommonIndent(find.replace(/\n$/, '').split('\n')).map((l) => l.trimEnd())
+  if (want.length === 0 || want.every((l) => !l.trim())) return { count: 0, start: 0, end: 0, indent: null }
+  const lines = text.split('\n')
+  let count = 0
+  let hit: { at: number; indent: string } | null = null
+  for (let i = 0; i + want.length <= lines.length; i++) {
+    const window = lines.slice(i, i + want.length)
+    const indent = commonIndent(window)
+    const same = window.every((l, k) => l.slice(indent.length).trimEnd() === want[k])
+    if (!same) continue
+    count += 1
+    hit ??= { at: i, indent }
+  }
+  if (!hit) return { count: 0, start: 0, end: 0, indent: null }
+  const start = lines.slice(0, hit.at).reduce((n, l) => n + l.length + 1, 0)
+  const end = start + lines.slice(hit.at, hit.at + want.length).join('\n').length
+  return { count, start, end, indent: hit.indent }
+}
+
+/** The replacement, with the model's common indent swapped for the file's. */
+function reindent(replace: string, find: string, indent: string): string {
+  const trailing = replace.endsWith('\n') ? '\n' : ''
+  const own = commonIndent(find.replace(/\n$/, '').split('\n'))
+  return (
+    replace
+      .replace(/\n$/, '')
+      .split('\n')
+      .map((l) => (l.trim() ? indent + (l.startsWith(own) ? l.slice(own.length) : l.trimStart()) : ''))
+      .join('\n') + trailing
+  )
+}
+
+function commonIndent(lines: string[]): string {
+  let indent: string | null = null
+  for (const l of lines) {
+    if (!l.trim()) continue
+    const lead = l.match(/^[ \t]*/)?.[0] ?? ''
+    if (indent === null || lead.length < indent.length) indent = lead
+  }
+  return indent ?? ''
+}
+
+function stripCommonIndent(lines: string[]): string[] {
+  const indent = commonIndent(lines)
+  return lines.map((l) => (l.startsWith(indent) ? l.slice(indent.length) : l.trimStart()))
+}
+
+async function writeWholeFile(grant: Grant, path: string, content: string, expected: string): Promise<AgentToolResult> {
+  if (!path) return { ok: false, content: 'Give a path to write.' }
+  const resolved = await grant.resolveForWrite(path)
+  if (!resolved.ok) return refusal(resolved)
+  const existing = await readText(resolved.path)
+  if (existing !== null) {
+    const hash = createHash('sha256').update(existing).digest('hex')
+    if (!expected) {
+      return { ok: false, content: `${resolved.relative} already exists. To overwrite it, pass expected_sha256 from the read tool's header, or use edit_file.` }
+    }
+    if (!hash.startsWith(expected)) {
+      return { ok: false, content: `${resolved.relative} has changed since it was read (hash mismatch). Read it again before overwriting.` }
+    }
+  }
+  await mkdir(dirname(resolved.path), { recursive: true })
+  await writeFile(resolved.path, content)
+  return { ok: true, content: `${existing === null ? 'Created' : 'Overwrote'} ${resolved.relative} (${content.split('\n').length} lines).` }
 }
 
 function refusal(r: { denied: boolean; reason: string }): AgentToolResult {

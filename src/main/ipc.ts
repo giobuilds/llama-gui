@@ -39,7 +39,7 @@ import { runHealthCheck } from './health.js'
 import { conversationSchema, type ConversationStore } from './conversations.js'
 import { openExternally, readerFor } from './reader.js'
 import type { CodingSupervisor } from './coding/supervisor.js'
-import type { CodingRunSummary, JournalEvent } from '@shared/coding.js'
+import type { ApplyResult, ChangeSet, CodingRunSummary, JournalEvent } from '@shared/coding.js'
 import type { ProfileStore } from './profiles.js'
 import {
   searchModels,
@@ -478,6 +478,13 @@ export function registerIpc(
     lastProject: settings.current.lastProject ?? null
   }))
   handle<JournalEvent[]>(IPC.codingGet, (id) => coding.events(String(id ?? '')))
+  handle<ChangeSet | null>(IPC.codingChanges, (id) => coding.changes(String(id ?? '')))
+  handle<ApplyResult>(IPC.codingApply, (id) => coding.apply(String(id ?? '')))
+  handle<ApplyResult>(IPC.codingUndo, (id) => coding.undo(String(id ?? '')))
+  handle<null>(IPC.codingDiscard, async (id) => {
+    await coding.discard(String(id ?? ''))
+    return null
+  })
 
   handle<AboutView>(IPC.appAbout, () => {
     // Run unpackaged, Electron reports itself rather than the app, so the
