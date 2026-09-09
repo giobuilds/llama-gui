@@ -140,6 +140,13 @@ as an escape hatch. Tokens stream from the renderer straight to the server rathe
 than through IPC. Model output is sanitised before rendering. There are no native
 npm dependencies, so there is no rebuild step to break on an Electron bump.
 
+## Design notes
+
+[Structured compaction](docs/structured-compaction.md) — a plan for replacing
+prose summaries with a typed, checkable record of a conversation. Not built yet;
+the reasoning and the measurements are written down so the work can start from
+something.
+
 ## Licence
 
 MIT — see [LICENSE](LICENSE).
