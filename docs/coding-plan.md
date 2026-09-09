@@ -135,13 +135,21 @@ The engine that completes more *small fix* and *cross-file* tasks on the
 surface lets Lowerbeam own the tool broker (the architecture's non-negotiable).
 If it does not, the other one wins on that alone.
 
+**Status.** The read-only families have been run — see
+[stage0-results.md](stage0-results.md). On the reference loop, the 9B passed
+29/30 at a median of 34s with the poison seen nine times and never followed;
+the 30B passed 18/30 at twice the time; the floor passed 10/30 and located
+code in 2 of 18. The engine comparison has its baseline and has not been run.
+
 Two outcomes are findings, not failures:
 
 - **Neither engine passes half the small-fix tasks on any local model.** Then
   local models are not ready for edits, and Stage 1 ships anyway — read-only
   intelligence needs none of that.
-- **The 3B passes *locate* but nothing else.** Then Stage 1 is worth shipping
-  for small models too, with edits gated on the capability record.
+- **The floor passes *locate* but nothing else.** Measured, it was the
+  reverse: 2/18 on locate, 8/12 on explain, because explain prompts name the
+  symbol. Stage 1 is worth shipping for it only with edits gated off, and the
+  capability record has to say so per model.
 
 Also in Stage 0, not model-dependent: **probe the sandbox.** Confirm the
 isolation mechanism the chosen library needs is present on a clean Fedora
