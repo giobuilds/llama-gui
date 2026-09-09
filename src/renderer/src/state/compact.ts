@@ -11,7 +11,7 @@
  * only what is *sent* changes.
  */
 import type { ChatMessageView, ConversationView } from '@shared/types.js'
-import { streamChat, type ChatTurn } from '../api/chatClient.js'
+import { streamChat, type ChatTurn } from '@shared/chatClient.js'
 
 /**
  * Compact once the next request would use this much of the window.

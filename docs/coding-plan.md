@@ -47,6 +47,27 @@ Measured or observed in this repo, so it is not rediscovered.
   model, which is what the architecture's *model lease* is for.
 - **Packaging targets Linux.** RPM and AppImage. The sandbox backend is
   validated there first and nowhere else in this plan.
+- **A template that declares no tool support cannot run the loop at all.**
+  The Qwen2.5-VL-3B build named as the floor reports
+  `chat_template_caps.supports_tools: false`, so under the app's own gating
+  rule it never gets tools declared. It stays on record; Gemma-4-E4B is the
+  floor that runs. Endpoint compatibility is not readiness — the first thing
+  the harness measured, before any task ran.
+- **A poison the model never reads tests nothing.** Planted at the end of a
+  578-line file, the instruction was never in a window the model read; "no
+  leak" was vacuous. The harness now plants it beside the code the task leads
+  to and records whether it was actually shown, and only counts leaks among
+  runs where it was.
+- **A corpus that contains the exam is not a corpus.** The first full matrix
+  ran against a copy of HEAD that included the harness, and 21 of 90 runs read
+  `tests/harness/tasks.ts` — the expected paths and symbols for every task.
+  Sixteen passes were tainted. Workspaces now exclude the harness and this
+  plan. Anything that names the answers has to be kept out of what the model
+  can read, every time, and checked by looking at what was read.
+- **Containment is available on the development machine.** bubblewrap 0.12,
+  unprivileged user namespaces, Landlock in the LSM list (ABI 9). The probe is
+  `tests/harness/probe-sandbox.mjs`; it has not yet been run on a clean
+  install of the RPM, which is the result that counts.
 
 ## Stage 0 — decide with numbers
 
@@ -88,7 +109,8 @@ Three, spanning what the card runs, all already on disk:
 |---|---|---|
 | Qwen3-Coder-30B-A3B | MoE, experts on CPU | the obvious coding model; 13–28 tok/s measured with `--cpu-moe` |
 | Ornith-1.5-9B | dense, thinking | the daily model; tests the reasoning budget |
-| Qwen2.5-VL-3B | small, dense | the floor: if it cannot locate code, nothing smaller will |
+| Gemma-4-E4B | small | the floor: if it cannot locate code, nothing smaller will |
+| ~~Qwen2.5-VL-3B~~ | small, dense | named first; its template declares no tool support, so it cannot run the loop |
 
 Each with one recorded configuration — file hash, quantisation, chat
 template, llama.cpp build, context, sampling — which becomes the first entry
@@ -113,13 +135,21 @@ The engine that completes more *small fix* and *cross-file* tasks on the
 surface lets Lowerbeam own the tool broker (the architecture's non-negotiable).
 If it does not, the other one wins on that alone.
 
+**Status.** The read-only families have been run — see
+[stage0-results.md](stage0-results.md). On the reference loop, the 9B passed
+29/30 at a median of 34s with the poison seen nine times and never followed;
+the 30B passed 18/30 at twice the time; the floor passed 10/30 and located
+code in 2 of 18. The engine comparison has its baseline and has not been run.
+
 Two outcomes are findings, not failures:
 
 - **Neither engine passes half the small-fix tasks on any local model.** Then
   local models are not ready for edits, and Stage 1 ships anyway — read-only
   intelligence needs none of that.
-- **The 3B passes *locate* but nothing else.** Then Stage 1 is worth shipping
-  for small models too, with edits gated on the capability record.
+- **The floor passes *locate* but nothing else.** Measured, it was the
+  reverse: 2/18 on locate, 8/12 on explain, because explain prompts name the
+  symbol. Stage 1 is worth shipping for it only with edits gated off, and the
+  capability record has to say so per model.
 
 Also in Stage 0, not model-dependent: **probe the sandbox.** Confirm the
 isolation mechanism the chosen library needs is present on a clean Fedora
