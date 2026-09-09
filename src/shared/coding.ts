@@ -80,7 +80,27 @@ export type RunOutcome =
   /** The model used every round without answering. */
   | 'rounds'
   | 'timeout'
+  | 'cancelled'
   | 'error'
+
+/** What the interface needs to list runs and show one, without the whole journal. */
+export interface CodingRunSummary {
+  id: string
+  task: string
+  projectRoot: string
+  model: string
+  startedAt: number
+  finishedAt: number | null
+  outcome: RunOutcome | 'running'
+  answer: string
+  rounds: number
+  denials: number
+}
+
+export interface CodingStartRequest {
+  projectRoot: string
+  task: string
+}
 
 /** What a tool hands back to the loop. Text is what the model sees; the rest is for the journal. */
 export interface AgentToolResult {

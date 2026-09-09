@@ -87,6 +87,7 @@ export function buildAppMenu(supervisor: () => ServerSupervisor | null): void {
         { label: 'Server', accelerator: 'CmdOrCtrl+2', click: () => send(IPC.menuAction, 'tab:server') },
         { label: 'Models', accelerator: 'CmdOrCtrl+3', click: () => send(IPC.menuAction, 'tab:models') },
         { label: 'Tuning', accelerator: 'CmdOrCtrl+4', click: () => send(IPC.menuAction, 'tab:tuning') },
+        { label: 'Coding', accelerator: 'CmdOrCtrl+5', click: () => send(IPC.menuAction, 'tab:coding') },
         { type: 'separator' },
         { role: 'resetZoom' },
         { role: 'zoomIn' },

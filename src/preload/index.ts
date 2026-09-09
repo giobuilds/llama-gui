@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { IPC } from '@shared/ipc.js'
+import type { CodingRunSummary, CodingStartRequest, JournalEvent } from '@shared/coding.js'
 import type {
   BinaryInfo,
   ConversationSummaryView,
@@ -128,6 +129,17 @@ const api = {
   app: {
     /** Name, version and the runtimes underneath, for the About panel. */
     about: () => invoke<AboutView>(IPC.appAbout)
+  },
+  coding: {
+    pickProject: () => invoke<string | null>(IPC.codingPickProject),
+    start: (req: CodingStartRequest) => invoke<CodingRunSummary>(IPC.codingStart, req),
+    cancel: (runId: string) => invoke<null>(IPC.codingCancel, runId),
+    list: () => invoke<{ runs: CodingRunSummary[]; lastProject: string | null }>(IPC.codingList),
+    /** The journal so far, for reconnecting after a reload. */
+    get: (runId: string) => invoke<JournalEvent[]>(IPC.codingGet, runId),
+    onEvent: (cb: (event: JournalEvent) => void) => subscribe<JournalEvent>(IPC.codingEvent, cb),
+    onRunsChanged: (cb: (runs: CodingRunSummary[]) => void) =>
+      subscribe<CodingRunSummary[]>(IPC.codingRunsChanged, cb)
   },
   reader: {
     /** Open a page in the sandboxed pane. Never navigates this window. */

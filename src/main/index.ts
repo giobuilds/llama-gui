@@ -15,6 +15,7 @@ import { buildAppMenu } from './menu.js'
 import { migrateLegacyUserData } from './migrate.js'
 import { attachContextMenu, registerContextMenuCommands } from './contextMenu.js'
 import { attachReader } from './reader.js'
+import { CodingSupervisor } from './coding/supervisor.js'
 import { isWebUrl } from '@shared/url.js'
 import type { BinaryInfo } from '@shared/types.js'
 
@@ -23,6 +24,7 @@ const dirname = fileURLToPath(new URL('.', import.meta.url))
 let supervisor: ServerSupervisor | null = null
 let downloads: DownloadManager | null = null
 let mcp: McpRegistry | null = null
+let coding: CodingSupervisor | null = null
 
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
@@ -172,8 +174,11 @@ async function bootstrap(): Promise<void> {
   })
   setSearxngUrl(settings.current.searxngUrl)
   void mcp.apply(settings.current.mcpServers)
-  registerIpc(supervisor, settings, conversations, profiles, mcp, downloads, discovered)
-  wireEvents(supervisor, downloads, mcp)
+  coding = new CodingSupervisor(join(app.getPath('userData'), 'coding'), () => supervisor)
+  await coding.load()
+
+  registerIpc(supervisor, settings, conversations, profiles, mcp, downloads, coding, discovered)
+  wireEvents(supervisor, downloads, mcp, coding)
   await supervisor.adoptOrReap()
 
   registerContextMenuCommands()
@@ -212,6 +217,7 @@ if (!app.requestSingleInstanceLock()) {
     // them: MCP servers are spawned detached, so nothing else would reap them.
     downloads?.shutdown()
     mcp?.shutdown()
+    coding?.shutdown()
     if (!supervisor || supervisor.status.pid === null) return
     event.preventDefault()
     void supervisor.shutdown().finally(() => app.quit())
