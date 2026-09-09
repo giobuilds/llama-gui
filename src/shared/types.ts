@@ -551,6 +551,8 @@ export interface ChatSettingsView {
 export interface CompactionView {
   summary: string
   throughMessageId: string
+  /** The user's own turns from the summarised range, kept word for word. */
+  userMessages: string[]
   messageCount: number
   at: number
 }
