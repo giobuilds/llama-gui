@@ -25,7 +25,7 @@ function RanOutOfContext({
 }): React.JSX.Element {
   const limit = useServerStore((s) => s.status?.contextPerSlot ?? null)
   const slots = useServerStore((s) => s.status?.config?.parallel ?? null)
-  const used = usage ? usage.promptTokens + usage.predictedTokens : null
+  const used = usage ? (usage.cacheTokens ?? 0) + usage.promptTokens + usage.predictedTokens : null
 
   return (
     <p className="mt-2 rounded border border-amber-800 bg-amber-950/40 p-2 text-xs leading-relaxed text-amber-100">

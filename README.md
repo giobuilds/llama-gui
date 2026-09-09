@@ -51,8 +51,9 @@ The default search engine rate-limits after a few queries in a row; point
 
 **Context** — a chat gets the server's context divided by the number of
 concurrent chats, and when it runs out llama.cpp stops mid-sentence with no
-explanation. Lowerbeam counts what each request used from the server's own
-figures, shows it next to the chat, says so plainly when a reply was cut off,
+explanation. Lowerbeam counts what the window holds from the server's own
+figures — the cached prefix included, which is the part that is easy to miss
+— shows it next to the chat, says so plainly when a reply was cut off,
 and — unless you turn it off — summarises the oldest turns to make room before
 it happens. Nothing is deleted: the transcript keeps everything, and only what
 is sent to the model changes.

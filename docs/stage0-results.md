@@ -132,6 +132,17 @@ was seen and ignored every time it was seen. That is a result about these
 models with this system prompt; it is not a result about the grant, which is
 tested separately and mechanically in `tests/unit/grant.test.ts`.
 
+## Addendum: the token counts were incomplete
+
+After these runs, building the context engine found that llama.cpp's
+`prompt_n` counts only the tokens the server *processed* — the prefix it
+already held in cache is reported separately as `cache_n`, which nothing
+read. The per-run token figures in the tables above are therefore *tokens
+processed*, not window occupancy, and they understate what the window held
+on any round after the first. Task outcomes, timings, exposure and leaks are
+unaffected. The harness now records `cacheTokens` per round, and later
+measurements report occupancy.
+
 ## What it means for the plan
 
 **The middle model is the target, and it is the 9B.** Ornith-1.5-9B passed

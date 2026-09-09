@@ -4,16 +4,17 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
 const shared = resolve('src/shared')
+const context = resolve('src/context')
 
 export default defineConfig({
   main: {
     plugins: [externalizeDepsPlugin()],
-    resolve: { alias: { '@shared': shared } },
+    resolve: { alias: { '@shared': shared, '@context': context } },
     build: { rollupOptions: { input: resolve('src/main/index.ts') } }
   },
   preload: {
     plugins: [externalizeDepsPlugin()],
-    resolve: { alias: { '@shared': shared } },
+    resolve: { alias: { '@shared': shared, '@context': context } },
     build: {
       rollupOptions: {
         input: resolve('src/preload/index.ts'),
@@ -27,7 +28,7 @@ export default defineConfig({
     root: resolve('src/renderer'),
     plugins: [react(), tailwindcss()],
     resolve: {
-      alias: { '@shared': shared, '@renderer': resolve('src/renderer/src') }
+      alias: { '@shared': shared, '@context': context, '@renderer': resolve('src/renderer/src') }
     },
     build: { rollupOptions: { input: resolve('src/renderer/index.html') } }
   }

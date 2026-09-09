@@ -37,9 +37,25 @@ export interface StreamCallbacks {
   onError: (message: string) => void
 }
 
+/**
+ * The server's own counts for one request.
+ *
+ * `promptTokens` is what the server had to process, not what the prompt
+ * contained: the prefix it already had in cache is reported separately as
+ * `cacheTokens`. What the window holds after the request is the sum of all
+ * three, and anything that reads only the first is wrong on every follow-up
+ * turn — which is how a context meter came to say 146 of 1,024 on a
+ * conversation that had just filled its window.
+ */
 export interface TokenUsage {
   promptTokens: number
   predictedTokens: number
+  cacheTokens: number
+}
+
+/** Tokens in the window once this request is done. */
+export function windowUsed(u: TokenUsage): number {
+  return u.cacheTokens + u.promptTokens + u.predictedTokens
 }
 
 export interface ChatTurn {
@@ -105,6 +121,8 @@ interface StreamChunk {
     /** Tokens the server read for this request, and produced in reply. */
     prompt_n?: number
     predicted_n?: number
+    /** Tokens it already had from the previous request and did not re-read. */
+    cache_n?: number
   }
   error?: { message?: string }
 }
@@ -193,7 +211,8 @@ export async function streamChat(
           if (typeof chunk.timings?.prompt_n === 'number') {
             usage = {
               promptTokens: chunk.timings.prompt_n,
-              predictedTokens: chunk.timings.predicted_n ?? 0
+              predictedTokens: chunk.timings.predicted_n ?? 0,
+              cacheTokens: chunk.timings.cache_n ?? 0
             }
           }
           if (chunk.choices?.[0]?.finish_reason) {

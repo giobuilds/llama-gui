@@ -26,6 +26,7 @@ await build({
   outfile: out,
   alias: {
     '@shared': join(repo, 'src/shared'),
+    '@context': join(repo, 'src/context'),
     electron: join(here, '..', 'stubs/electron.ts')
   },
   logLevel: 'silent'

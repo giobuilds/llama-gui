@@ -8,8 +8,8 @@ import {
   trimToLastSentence,
   verbatimUserMessages,
   PREEMPT_AT
-} from '../../src/renderer/src/state/compact.js'
-import { buildTurns } from '../../src/renderer/src/state/chatStore.js'
+} from '@context/compact.js'
+import { projectConversation as buildTurns } from '@context/project.js'
 import type { ChatMessageView, ConversationView } from '@shared/types.js'
 
 let n = 0; const ok = (m: string) => { n++; console.log('  ok', m) }

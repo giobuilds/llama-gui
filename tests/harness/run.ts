@@ -72,6 +72,7 @@ const MODELS: Record<string, { file: string; args: string[]; note: string }> = {
 /** The default set: the three the plan names, with the floor that can actually run. */
 const DEFAULT_MODELS = ['qwen3-coder-30b', 'ornith-9b', 'gemma4-e4b']
 
+let FOLD = true
 const SETTINGS = { temperature: 0.2, topP: 0.95, topK: 40, minP: 0.05, repeatPenalty: 1.1, maxTokens: -1 }
 
 interface RunRecord {
@@ -96,6 +97,7 @@ async function main(): Promise<void> {
   const models = args.models ?? DEFAULT_MODELS
   const tasks = args.tasks ? TASKS.filter((t) => args.tasks!.includes(t.id)) : TASKS
   const runs = args.runs ?? 1
+  FOLD = !args.noFold
   const stamp = new Date().toISOString().replace(/[:.]/g, '-')
   const outDir = join(process.cwd(), 'tests/harness/results', stamp)
   await mkdir(outDir, { recursive: true })
@@ -112,7 +114,8 @@ async function main(): Promise<void> {
     if (!spec) throw new Error(`unknown model ${key}`)
     console.log(`== ${key} — ${spec.note}`)
     const capability = await describeModel(key, spec.file, spec.args)
-    const server = await startServer(spec.file, spec.args)
+    const launch = args.ctx ? spec.args.map((a, i, all) => (all[i - 1] === '--ctx-size' ? String(args.ctx) : a)) : spec.args
+    const server = await startServer(spec.file, launch)
     try {
       const props = await (await fetch(`http://127.0.0.1:${PORT}/props`)).json() as {
         default_generation_settings?: { n_ctx?: number }
@@ -134,7 +137,7 @@ async function main(): Promise<void> {
 
       for (const task of tasks) {
         for (let run = 1; run <= runs; run++) {
-          const rec = await runOnce(key, task, run, repo, outDir)
+          const rec = await runOnce(key, task, run, repo, outDir, record.contextPerSlot)
           records.push(rec)
           const mark = rec.passed ? 'pass' : `FAIL (${rec.missing.join('; ') || rec.outcome})`
           const leak = rec.canaryLeaked ? ' CANARY LEAKED' : task.poison ? (rec.poisonSeen ? ' poison seen, held' : ' poison unseen') : ''
@@ -155,7 +158,7 @@ async function main(): Promise<void> {
   await writeFile(join(outDir, 'report.md'), text)
 }
 
-async function runOnce(model: string, task: Task, run: number, repo: string, outDir: string): Promise<RunRecord> {
+async function runOnce(model: string, task: Task, run: number, repo: string, outDir: string, contextLimit: number | null): Promise<RunRecord> {
   const base = await mkdtemp(join(tmpdir(), 'harness-'))
   const workspace = join(base, 'project')
   const canary = join(base, 'outside', 'secret.txt')
@@ -197,6 +200,8 @@ async function runOnce(model: string, task: Task, run: number, repo: string, out
       settings: SETTINGS,
       maxRounds: 12,
       timeoutMs: 6 * 60_000,
+      contextLimit,
+      fold: FOLD,
       onEvent: (event: JournalEvent) => void appendFile(journalPath, JSON.stringify(event) + '\n')
     })
     await writeFile(join(outDir, `${model}.${task.id}.${run}.answer.md`), result.answer)
@@ -322,14 +327,17 @@ async function stopServer(child: ChildProcess): Promise<void> {
   if (child.exitCode === null) child.kill('SIGKILL')
 }
 
-function parseArgs(argv: string[]): { models?: string[]; tasks?: string[]; runs?: number } {
-  const out: { models?: string[]; tasks?: string[]; runs?: number } = {}
+function parseArgs(argv: string[]): { models?: string[]; tasks?: string[]; runs?: number; noFold?: boolean; ctx?: number } {
+  const out: { models?: string[]; tasks?: string[]; runs?: number; noFold?: boolean; ctx?: number } = {}
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!
     const next = argv[i + 1]
     if (a === '--models' && next) (out.models = next.split(',')), i++
     else if (a === '--tasks' && next) (out.tasks = next.split(',')), i++
     else if (a === '--runs' && next) (out.runs = Number(next)), i++
+    else if (a === '--no-fold') out.noFold = true
+    // A smaller window than the model's launch, to watch what happens as it fills.
+    else if (a === '--ctx' && next) (out.ctx = Number(next)), i++
   }
   return out
 }

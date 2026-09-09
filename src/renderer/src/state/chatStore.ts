@@ -15,7 +15,8 @@ import {
   shouldCompact,
   summarise,
   verbatimUserMessages
-} from './compact.js'
+} from '@context/compact.js'
+import { projectConversation } from '@context/project.js'
 
 const DEFAULT_SETTINGS: ChatSettingsView = {
   temperature: 0.8,
@@ -41,15 +42,6 @@ interface ActiveStream {
  */
 const MAX_TOOL_ROUNDS = 4
 
-/**
- * Full tool output is dropped from history once the model has answered from it.
- *
- * Keeping it would mean every later turn re-sends every page ever fetched: at
- * roughly 1,300 tokens a page, a handful of searches would fill a conversation's
- * whole context with material nobody is reading. The one-line summary and the
- * sources stay, so the conversation still records what was consulted.
- */
-const KEEP_FULL_RESULTS_FOR_TURNS = 1
 
 interface ChatState {
   conversations: ConversationSummaryView[]
@@ -414,59 +406,6 @@ async function compactNow(id: string, set: Setter, get: Getter): Promise<void> {
  * summary. The model has already answered from the full text; re-sending it on
  * every later message would fill the context with pages nobody is reading.
  */
-export function buildTurns(conversation: ConversationView): ChatTurn[] {
-  const turns: ChatTurn[] = []
-  if (conversation.systemPrompt.trim()) {
-    turns.push({ role: 'system', content: conversation.systemPrompt })
-  }
-
-  const assistantTurns = conversation.messages.filter((m) => m.role === 'assistant')
-  const recent = new Set(
-    assistantTurns.slice(-KEEP_FULL_RESULTS_FOR_TURNS).map((m) => m.id)
-  )
-
-  // Everything the summary covers is represented by the summary alone. The
-  // messages stay in the transcript; they simply stop being sent.
-  const compaction = conversation.compaction
-  let skipUntil = compaction
-    ? conversation.messages.findIndex((m) => m.id === compaction.throughMessageId)
-    : -1
-  if (compaction && skipUntil === -1) skipUntil = -1 // a summary whose anchor is gone covers nothing
-  if (compaction && skipUntil >= 0) {
-    // The user's words go in the same turn rather than as replayed user turns:
-    // several user messages in a row with no replies between them is not a
-    // shape every chat template accepts.
-    const asked = compaction.userMessages.length
-      ? `\n\nEarlier, the user asked, in their own words:\n` +
-        compaction.userMessages.map((m) => `- ${m}`).join('\n')
-      : ''
-    turns.push({
-      role: 'system',
-      content: `Summary of the earlier part of this conversation:\n\n${compaction.summary}${asked}`
-    })
-  }
-
-  for (const [index, m] of conversation.messages.entries()) {
-    if (skipUntil >= 0 && index <= skipUntil) continue
-    if (m.role === 'system') continue
-    if (m.role === 'assistant' && m.toolCalls?.length) {
-      const keepFull = recent.has(m.id)
-      const note = m.toolCalls
-        .map((c) =>
-          keepFull && c.content
-            ? `${c.summary ?? c.name}\n${c.content}`
-            : (c.summary ?? `${c.name} was used`)
-        )
-        .join('\n\n')
-      // Folded into the assistant's own turn, so the transcript stays a plain
-      // alternation and no orphaned tool messages are sent.
-      turns.push({ role: 'assistant', content: [note, m.content].filter(Boolean).join('\n\n') })
-      continue
-    }
-    turns.push({ role: m.role, content: m.content, ...(m.images?.length ? { images: m.images } : {}) })
-  }
-  return turns
-}
 
 /**
  * The one failure compaction cannot fix: a window too small for a single
@@ -560,7 +499,7 @@ async function runCompletion(
   }
   const baseUrl = `http://127.0.0.1:${status.port}`
 
-  const turns = buildTurns(conversation)
+  const turns = projectConversation(conversation)
 
   const reply: ChatMessageView = {
     id: newId(),

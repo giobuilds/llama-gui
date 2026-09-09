@@ -23,6 +23,8 @@ interface Base {
 export interface TokenCount {
   promptTokens: number
   predictedTokens: number
+  /** The prefix the server already held; with the other two, the window's occupancy. */
+  cacheTokens?: number
 }
 
 export type JournalEvent =
@@ -37,6 +39,8 @@ export type JournalEvent =
       round: number
       turns: number
       tools: string[]
+      /** Older tool results sent as their first line only, to stay inside the window. */
+      folded?: number
     })
   | (Base & {
       type: 'model.response'
