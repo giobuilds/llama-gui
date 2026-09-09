@@ -63,6 +63,15 @@ its own web contents with no bridge to Lowerbeam, so a script on it cannot reach
 the app: no IPC, no filesystem, no process spawning. Close it, or send it to
 your real browser, from its header.
 
+**Coding** — point the loaded model at a project folder and ask it questions
+about the code. It gets three tools — list, search and read — and nothing
+else: every path it asks for is resolved and checked against that folder, so
+a link out of it, a `..`, or an instruction planted in a file to read
+something elsewhere all fail the same way. Every request, every file read,
+every refusal and the answer are written to a journal before the tab shows
+them, so reloading mid-run rebuilds exactly what was there. It cannot change
+or run anything; that is a later stage and a different boundary.
+
 **MCP servers** — any program that speaks the Model Context Protocol over stdin
 and stdout can supply more tools. Give Lowerbeam its command and it starts it,
 lists what it offers, and adds those tools to the same list chat picks from —

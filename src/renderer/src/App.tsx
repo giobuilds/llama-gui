@@ -4,6 +4,7 @@ import { LogPane } from './views/LogPane.js'
 import { Chat } from './views/Chat.js'
 import { Downloads } from './views/Downloads.js'
 import { Tuning } from './views/Tuning.js'
+import { Coding } from './views/Coding.js'
 import { subscribeToMain, useServerStore } from './state/serverStore.js'
 import { useChatStore } from './state/chatStore.js'
 import { subscribeToDownloads, useDownloadStore } from './state/downloadStore.js'
@@ -14,10 +15,11 @@ import { ToolSettings } from './components/ToolSettings.js'
 import { About } from './components/About.js'
 import { ReaderPanel } from './components/ReaderPanel.js'
 import { subscribeToReader, useReaderStore } from './state/readerStore.js'
+import { subscribeToCoding } from './state/codingStore.js'
 import { isWebUrl } from '@shared/url.js'
 import { StatusBadge } from './components/StatusBadge.js'
 
-type Tab = 'chat' | 'server' | 'models' | 'tuning'
+type Tab = 'chat' | 'server' | 'models' | 'tuning' | 'coding'
 
 export default function App(): React.JSX.Element {
   const init = useServerStore((s) => s.init)
@@ -37,6 +39,7 @@ export default function App(): React.JSX.Element {
     const offDownloads = subscribeToDownloads()
     const offBench = subscribeToBench()
     const offReader = subscribeToReader()
+    const offCoding = subscribeToCoding()
 
     // The menu does not act on the app directly; it asks the UI to do the same
     // things its buttons do, so there is one path to every action.
@@ -46,6 +49,7 @@ export default function App(): React.JSX.Element {
         case 'tab:server': setTab('server'); break
         case 'tab:models': setTab('models'); break
         case 'tab:tuning': setTab('tuning'); break
+        case 'tab:coding': setTab('coding'); break
         case 'help:flags': setShowFlags(true); break
         case 'tools:configure': setShowTools(true); break
         case 'help:about': setShowAbout(true); break
@@ -69,6 +73,7 @@ export default function App(): React.JSX.Element {
       offDownloads()
       offBench()
       offReader()
+      offCoding()
       offMenu()
     }
   }, [init])
@@ -144,6 +149,9 @@ export default function App(): React.JSX.Element {
         <TabButton active={tab === 'tuning'} onClick={() => setTab('tuning')}>
           Tuning
         </TabButton>
+        <TabButton active={tab === 'coding'} onClick={() => setTab('coding')}>
+          Coding
+        </TabButton>
 
         <div className="ml-auto flex items-center gap-3 text-[11px] text-muted">
           {status?.phase === 'ready' && status.config?.modelPath && (
@@ -171,6 +179,8 @@ export default function App(): React.JSX.Element {
           <Downloads />
         ) : tab === 'tuning' ? (
           <Tuning />
+        ) : tab === 'coding' ? (
+          <Coding />
         ) : (
           <div className="flex h-full">
             <LaunchPanel />

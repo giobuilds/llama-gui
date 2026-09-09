@@ -77,6 +77,12 @@ export const readerBoundsSchema = z.object({
   height: z.number().int().min(0)
 })
 
+/** A coding run: one project, one question. The grant is checked separately. */
+export const codingStartSchema = z.object({
+  projectRoot: z.string().min(1).max(4096),
+  task: z.string().min(1).max(4000)
+})
+
 export const toolRunSchema = z.object({
   name: z.string().min(1).max(64),
   args: z.record(z.string(), z.unknown()).default({})

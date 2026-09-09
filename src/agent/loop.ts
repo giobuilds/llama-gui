@@ -28,6 +28,10 @@ export interface RunRequest {
   /** How many model calls before the run is declared to have wandered. */
   maxRounds?: number
   timeoutMs?: number
+  /** Cancellation from outside — the user's stop button. */
+  signal?: AbortSignal
+  /** The run's id, when the caller has to know it before the first event. */
+  runId?: string
   onEvent: (event: JournalEvent) => void
   /**
    * Sees every tool result in full, which the journal deliberately does not
@@ -60,10 +64,11 @@ const POLICY =
   'you already have the answer.'
 
 export async function runTask(req: RunRequest): Promise<RunResult> {
-  const run = randomUUID()
+  const run = req.runId ?? randomUUID()
   const started = Date.now()
   const maxRounds = req.maxRounds ?? 12
-  const deadline = AbortSignal.timeout(req.timeoutMs ?? 5 * 60_000)
+  const timeout = AbortSignal.timeout(req.timeoutMs ?? 5 * 60_000)
+  const deadline = req.signal ? AbortSignal.any([timeout, req.signal]) : timeout
   let seq = 0
   const emit = (event: Emitted): void => {
     req.onEvent({ v: JOURNAL_VERSION, run, seq: seq++, ts: Date.now(), ...event } as JournalEvent)
@@ -95,7 +100,7 @@ export async function runTask(req: RunRequest): Promise<RunResult> {
 
   for (rounds = 1; rounds <= maxRounds; rounds++) {
     if (deadline.aborted) {
-      outcome = 'timeout'
+      outcome = req.signal?.aborted ? 'cancelled' : 'timeout'
       return finish()
     }
     emit({ type: 'model.request', round: rounds, turns: turns.length, tools: AGENT_TOOLS.map((t) => t.name) })
@@ -149,12 +154,12 @@ export async function runTask(req: RunRequest): Promise<RunResult> {
     })
 
     if (failure) {
-      outcome = deadline.aborted ? 'timeout' : 'error'
+      outcome = req.signal?.aborted ? 'cancelled' : deadline.aborted ? 'timeout' : 'error'
       answer = failure
       return finish()
     }
     if (finishReason === 'aborted') {
-      outcome = 'timeout'
+      outcome = req.signal?.aborted ? 'cancelled' : 'timeout'
       return finish()
     }
 

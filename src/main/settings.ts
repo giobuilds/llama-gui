@@ -8,6 +8,8 @@ const settingsSchema = z.object({
   calibration: calibrationSchema.default(EMPTY_CALIBRATION),
   /** Explicit llama.cpp binary chosen by the user, overriding auto-discovery. */
   binaryPath: z.string().optional(),
+  /** The project the Coding tab last had open. */
+  lastProject: z.string().optional(),
   /** Model Context Protocol servers the user has configured. */
   mcpServers: z
     .array(

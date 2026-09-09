@@ -38,6 +38,8 @@ import { fitParams } from './fit.js'
 import { runHealthCheck } from './health.js'
 import { conversationSchema, type ConversationStore } from './conversations.js'
 import { openExternally, readerFor } from './reader.js'
+import type { CodingSupervisor } from './coding/supervisor.js'
+import type { CodingRunSummary, JournalEvent } from '@shared/coding.js'
 import type { ProfileStore } from './profiles.js'
 import {
   searchModels,
@@ -60,7 +62,8 @@ import {
   healthCheckRequestSchema,
   toolRunSchema,
   mcpServersSchema,
-  readerBoundsSchema
+  readerBoundsSchema,
+  codingStartSchema
 } from '@shared/schema.js'
 import type { SettingsStore } from './settings.js'
 
@@ -106,6 +109,7 @@ export function registerIpc(
   profiles: ProfileStore,
   mcp: McpRegistry,
   downloads: DownloadManager,
+  coding: CodingSupervisor,
   /** Every llama.cpp install found at startup, best first. */
   discovered: BinaryInfo[]
 ): void {
@@ -447,6 +451,34 @@ export function registerIpc(
   // the only thing that differs for the user is where a tool came from.
   handle<ToolDefinition[]>(IPC.toolsList, () => [...BUILT_IN_TOOLS, ...mcp.tools()])
 
+  // Coding runs. The supervisor owns the grant, the journal and cancellation;
+  // these only translate requests, and the start request is validated like
+  // every other payload that crosses from the renderer.
+  handle<string | null>(IPC.codingPickProject, async () => {
+    const r = await dialog.showOpenDialog({
+      title: 'Choose the project the model may read',
+      properties: ['openDirectory']
+    })
+    const dir = r.canceled ? null : (r.filePaths[0] ?? null)
+    if (dir) await settings.patch({ lastProject: dir })
+    return dir
+  })
+  handle<CodingRunSummary>(IPC.codingStart, async (raw) => {
+    const req = codingStartSchema.parse(raw)
+    const run = await coding.start(req)
+    await settings.patch({ lastProject: req.projectRoot })
+    return run
+  })
+  handle<null>(IPC.codingCancel, (id) => {
+    coding.cancel(String(id ?? ''))
+    return null
+  })
+  handle<{ runs: CodingRunSummary[]; lastProject: string | null }>(IPC.codingList, () => ({
+    runs: coding.list(),
+    lastProject: settings.current.lastProject ?? null
+  }))
+  handle<JournalEvent[]>(IPC.codingGet, (id) => coding.events(String(id ?? '')))
+
   handle<AboutView>(IPC.appAbout, () => {
     // Run unpackaged, Electron reports itself rather than the app, so the
     // manifest is the honest source in both cases — it ships inside the asar.
@@ -549,7 +581,8 @@ let broadcastMcp: (snap: McpSnapshot) => void = () => {}
 export function wireEvents(
   supervisor: ServerSupervisor,
   downloads: DownloadManager,
-  mcp: McpRegistry
+  mcp: McpRegistry,
+  coding: CodingSupervisor
 ): void {
   const broadcast = (channel: string, payload?: unknown): void => {
     for (const win of BrowserWindow.getAllWindows()) {
@@ -563,6 +596,8 @@ export function wireEvents(
   // A server that starts, fails or is stopped changes which tools exist.
   mcp.on('state', () => broadcastMcp({ configs: mcp.configs(), states: mcp.states() }))
   broadcastBench = (run) => broadcast(IPC.benchChanged, run)
+  coding.on('event', (event) => broadcast(IPC.codingEvent, event))
+  coding.on('runs', (runs) => broadcast(IPC.codingRunsChanged, runs))
 
   // llama-server can emit hundreds of lines per second; coalesce the "there is
   // new output" hint so the renderer polls at most ~10x/sec instead of per line.

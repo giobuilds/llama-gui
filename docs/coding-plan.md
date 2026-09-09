@@ -160,6 +160,23 @@ install of the RPM. If it is not, Coding launches read-only and says why.
 The first shippable slice. Useful on its own, needs no sandbox, no engine
 choice that Stage 0 could reverse, and no write to anything.
 
+**Status.** Shipped in its first form: a Coding tab, a `CodingSupervisor` in
+the main process with a JSONL journal per run, project selection remembered
+across launches, the three read-only tools behind the grant, Stop, and
+reconnection after a renderer reload from the journal. Verified in the
+running app: a run started from the composer, the renderer reloaded
+mid-run and rebuilt nine journal lines from disk then kept receiving live
+events to twenty-six, the answer rendered and named the right function, a
+second run cancelled with `cancelled` in its journal, and a clean quit.
+
+Two things from the list below are deliberately not in it yet. The loop runs
+in the main process rather than a utility process — it has no Electron in it
+and takes only a grant and a callback, so the move is a transport change,
+and it is read-only, so what it can do from main is list, search and read
+inside one directory. And chat still runs its own compaction in the
+renderer; the shared context engine is the next slice, with the existing
+suite as its gate.
+
 **Ships:**
 
 - **Project selection** with a canonical granted root. Symlinks resolved,
