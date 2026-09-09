@@ -13,8 +13,23 @@
 import type { ChatMessageView, ConversationView } from '@shared/types.js'
 import { streamChat, type ChatTurn } from '../api/chatClient.js'
 
-/** Compact once the next request would use this much of the window. */
+/**
+ * Compact once the next request would use this much of the window.
+ *
+ * This is the late threshold, checked with the user waiting. Crossing
+ * PREEMPT_AT starts the same work in the background instead, so in practice
+ * this one only fires when a single turn jumps most of the way on its own.
+ */
 export const COMPACT_AT = 0.75
+
+/**
+ * Start summarising in the background once a reply leaves the chat this full.
+ *
+ * Summarising costs about as long as a short reply — measured at 22s for a 9B
+ * over 1,800 tokens — and none of that is worth making anyone wait for. Done
+ * here, it runs while the reply that triggered it is still being read.
+ */
+export const PREEMPT_AT = 0.6
 
 /** Turns kept verbatim after a compaction, so recent context stays exact. */
 export const KEEP_RECENT_TURNS = 4
@@ -29,11 +44,45 @@ export const KEEP_RECENT_TURNS = 4
  */
 const KEEP_RECENT_SHARE = 0.35
 
-/** A summary has to fit too, so its length follows the window rather than a constant. */
+/**
+ * A summary has to fit too, so its length follows the window rather than a constant.
+ *
+ * The word target is deliberately well under what the token cap allows: asked
+ * for as many words as would just fit, a model writes to the cap and gets cut
+ * off mid-sentence, which is how the first version of this ended.
+ */
 export function summaryBudget(contextPerSlot: number | null): { tokens: number; words: number } {
   const tokens = Math.max(120, Math.min(700, Math.round((contextPerSlot ?? 4096) * 0.15)))
-  return { tokens, words: Math.round(tokens * 0.65) }
+  return { tokens, words: Math.round(tokens * 0.45) }
 }
+
+/**
+ * What the user themselves said, kept word for word.
+ *
+ * Their turns are short and carry the requests the whole conversation is
+ * about, so they are the worst thing to paraphrase and the cheapest to keep.
+ * Only as many as fit the budget, newest first — an older request that no
+ * longer fits is still represented in the summary.
+ */
+export function verbatimUserMessages(
+  older: ChatMessageView[],
+  contextPerSlot: number | null
+): string[] {
+  const budget = (contextPerSlot ?? 4096) * VERBATIM_SHARE
+  const kept: string[] = []
+  let used = 0
+  for (const m of [...older].reverse()) {
+    if (m.role !== 'user' || !m.content.trim()) continue
+    const cost = roughTokens(m.content)
+    if (used + cost > budget) break
+    used += cost
+    kept.unshift(m.content.trim())
+  }
+  return kept
+}
+
+/** How much of the window the user's own words may take. */
+const VERBATIM_SHARE = 0.1
 
 /**
  * Tokens the next request will need, from what the server counted last time.
@@ -107,13 +156,32 @@ export function compactableMessages(
   return candidates.slice(0, candidates.length - kept)
 }
 
-function instruction(words: number): string {
+function instruction(words: number, userKept: boolean): string {
   return (
     'Summarise the conversation so far for your own use as notes. Keep decisions, ' +
-    'facts, names, code and anything the user asked for; drop pleasantries and ' +
-    `repetition. Write it as compact prose in the third person, under ${words} words. ` +
-    'Reply with the summary only.'
+    'facts, names, code and conclusions; drop pleasantries and repetition. ' +
+    (userKept
+      ? "The user's own messages are being kept word for word alongside these " +
+        'notes, so cover what was worked out in reply to them rather than ' +
+        'restating the questions. '
+      : '') +
+    `Write it as compact prose in the third person. Aim for ${words} words and ` +
+    'finish your last sentence. Reply with the summary only.'
   )
+}
+
+/**
+ * A summary cut off by the token cap ends mid-sentence, which reads as damage
+ * in the transcript and is worse than a shorter summary. Trim back to the last
+ * complete sentence — unless that would throw away most of it, in which case
+ * the truncated text is still the more useful of the two.
+ */
+export function trimToLastSentence(text: string): string {
+  const end = Math.max(text.lastIndexOf('. '), text.lastIndexOf('.\n'), text.lastIndexOf('! '),
+    text.lastIndexOf('? '), text.lastIndexOf('.'), text.lastIndexOf('!'), text.lastIndexOf('?'))
+  if (end < 0) return text
+  const trimmed = text.slice(0, end + 1).trimEnd()
+  return trimmed.length >= text.length * 0.7 ? trimmed : text
 }
 
 /**
@@ -131,6 +199,7 @@ export async function summarise(
   signal: AbortSignal
 ): Promise<string> {
   const budget = summaryBudget(contextPerSlot)
+  const userKept = verbatimUserMessages(older, contextPerSlot).length > 0
   const transcript = older
     .filter((m) => m.role !== 'system')
     .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`)
@@ -141,12 +210,13 @@ export async function summarise(
       role: 'user',
       content:
         (previous ? `Notes from earlier still to be carried forward:\n\n${previous}\n\n---\n\n` : '') +
-        `${transcript}\n\n---\n\n${instruction(budget.words)}`
+        `${transcript}\n\n---\n\n${instruction(budget.words, userKept)}`
     }
   ]
 
   let summary = ''
   let failure: string | null = null
+  let cutOff = false
   await streamChat(
     baseUrl,
     turns,
@@ -157,7 +227,9 @@ export async function summarise(
       onDelta: (text) => {
         summary += text
       },
-      onDone: () => {},
+      onDone: ({ finishReason }) => {
+        cutOff = finishReason === 'length'
+      },
       onError: (message) => {
         failure = message
       }
@@ -166,5 +238,5 @@ export async function summarise(
   if (failure) throw new Error(failure)
   const trimmed = summary.trim()
   if (!trimmed) throw new Error('The model returned an empty summary.')
-  return trimmed
+  return cutOff ? trimToLastSentence(trimmed) : trimmed
 }

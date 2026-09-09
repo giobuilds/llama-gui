@@ -93,6 +93,8 @@ export const conversationSchema = z.object({
       summary: z.string(),
       /** Everything up to and including this message is what the summary covers. */
       throughMessageId: z.string(),
+      /** The user's own turns from that range, kept word for word. */
+      userMessages: z.array(z.string()).default([]),
       messageCount: z.number(),
       at: z.number()
     })

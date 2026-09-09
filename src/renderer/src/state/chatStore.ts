@@ -8,7 +8,14 @@ import type {
 import { streamChat, type ChatTurn, type StreamedToolCall } from '../api/chatClient.js'
 import type { ToolCallView, ToolDefinition } from '@shared/types.js'
 import { useServerStore } from './serverStore.js'
-import { compactableMessages, shouldCompact, summarise } from './compact.js'
+import {
+  compactableMessages,
+  PREEMPT_AT,
+  projectedPromptTokens,
+  shouldCompact,
+  summarise,
+  verbatimUserMessages
+} from './compact.js'
 
 const DEFAULT_SETTINGS: ChatSettingsView = {
   temperature: 0.8,
@@ -71,6 +78,8 @@ interface ChatState {
   /** Summarise the oldest turns so the conversation keeps fitting. */
   compact: (conversationId?: string) => Promise<void>
   setAutoCompact: (enabled: boolean) => Promise<void>
+  /** Wait for a background compaction of this conversation, if one is running. */
+  awaitCompaction: (conversationId: string) => Promise<void>
   stop: (conversationId?: string) => void
   stopAll: () => void
   flushInFlight: () => Promise<void>
@@ -196,9 +205,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
     put(set, get, withUser)
     await persist(withUser, set, get)
 
-    // Make room before asking, rather than letting the reply stop mid-sentence.
+    // A background compaction may already be running from the last reply; its
+    // result is exactly what this request needs, so wait for it rather than
+    // sending an oversized prompt or starting a second one.
+    await get().awaitCompaction(withUser.id)
+
+    // Still too full — a single turn can jump most of the window on its own —
+    // so make room now, with the user waiting.
     const limit = useServerStore.getState().status?.contextPerSlot ?? null
-    if (shouldCompact(withUser, trimmed, limit)) await get().compact(withUser.id)
+    const latest = get().byId[withUser.id] ?? withUser
+    if (shouldCompact(latest, trimmed, limit)) await get().compact(withUser.id)
 
     await runCompletion(withUser.id, set, get)
   },
@@ -212,44 +228,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
   async compact(conversationId) {
     const id = conversationId ?? get().activeId
     if (!id) return
-    const conversation = get().byId[id]
-    const status = useServerStore.getState().status
-    if (!conversation || !status || status.phase !== 'ready' || !status.port) return
-
-    const limit = status.contextPerSlot
-    const older = compactableMessages(conversation, limit)
-    if (older.length === 0) return
-
-    set({ compacting: { ...get().compacting, [id]: true } })
+    // A background run may already be doing this; joining it is what stops two
+    // summaries racing to set different anchors on the same conversation.
+    const running = inFlight.get(id)
+    if (running) return running
+    const run = compactNow(id, set, get)
+    inFlight.set(id, run)
     try {
-      const summary = await summarise(
-        `http://127.0.0.1:${status.port}`,
-        conversation,
-        older,
-        conversation.compaction?.summary ?? null,
-        limit,
-        AbortSignal.timeout(120_000)
-      )
-      const current = get().byId[id]
-      if (!current) return
-      const next: ConversationView = {
-        ...current,
-        compaction: {
-          summary,
-          throughMessageId: older[older.length - 1]!.id,
-          messageCount: (current.compaction?.messageCount ?? 0) + older.length,
-          at: Date.now()
-        }
-      }
-      put(set, get, next)
-      await persist(next, set, get)
-    } catch (err) {
-      // A failed summary is not a failed conversation: say so and carry on,
-      // since the request that follows may still fit.
-      set({ error: `Could not compact this chat: ${(err as Error).message}` })
+      await run
     } finally {
-      const { [id]: _done, ...rest } = get().compacting
-      set({ compacting: rest })
+      inFlight.delete(id)
     }
   },
 
@@ -259,6 +247,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const next = { ...conversation, autoCompact: enabled }
     put(set, get, next)
     await persist(next, set, get)
+  },
+
+  async awaitCompaction(conversationId) {
+    await inFlight.get(conversationId)
   },
 
   stop(conversationId) {
@@ -354,6 +346,67 @@ export const useChatStore = create<ChatState>((set, get) => ({
   }
 }))
 
+/** Compactions currently running, keyed by conversation. */
+const inFlight = new Map<string, Promise<void>>()
+
+async function compactNow(id: string, set: Setter, get: Getter): Promise<void> {
+  {
+    const conversation = get().byId[id]
+    const status = useServerStore.getState().status
+    if (!conversation || !status || status.phase !== 'ready' || !status.port) return
+
+    const limit = status.contextPerSlot
+    const older = compactableMessages(conversation, limit)
+    if (older.length === 0) return
+
+    set({ compacting: { ...get().compacting, [id]: true } })
+    try {
+      const summary = await summarise(
+        `http://127.0.0.1:${status.port}`,
+        conversation,
+        older,
+        conversation.compaction?.summary ?? null,
+        limit,
+        AbortSignal.timeout(120_000)
+      )
+      const current = get().byId[id]
+      if (!current) return
+      const next: ConversationView = {
+        ...current,
+        compaction: {
+          summary,
+          throughMessageId: older[older.length - 1]!.id,
+          // Carried forward with the new ones, so a request from ten turns ago
+          // survives as long as it fits.
+          userMessages: verbatimUserMessages(
+            [
+              ...(current.compaction?.userMessages ?? []).map((content) => ({
+                id: '',
+                role: 'user' as const,
+                content,
+                createdAt: 0
+              })),
+              ...older
+            ],
+            limit
+          ),
+          messageCount: (current.compaction?.messageCount ?? 0) + older.length,
+          at: Date.now()
+        }
+      }
+      put(set, get, next)
+      await persist(next, set, get)
+    } catch (err) {
+      // A failed summary is not a failed conversation: say so and carry on,
+      // since the request that follows may still fit.
+      set({ error: `Could not compact this chat: ${(err as Error).message}` })
+    } finally {
+      const { [id]: _done, ...rest } = get().compacting
+      set({ compacting: rest })
+    }
+  }
+}
+
 /**
  * Turn a stored conversation into the messages sent to the model.
  *
@@ -380,9 +433,16 @@ export function buildTurns(conversation: ConversationView): ChatTurn[] {
     : -1
   if (compaction && skipUntil === -1) skipUntil = -1 // a summary whose anchor is gone covers nothing
   if (compaction && skipUntil >= 0) {
+    // The user's words go in the same turn rather than as replayed user turns:
+    // several user messages in a row with no replies between them is not a
+    // shape every chat template accepts.
+    const asked = compaction.userMessages.length
+      ? `\n\nEarlier, the user asked, in their own words:\n` +
+        compaction.userMessages.map((m) => `- ${m}`).join('\n')
+      : ''
     turns.push({
       role: 'system',
-      content: `Summary of the earlier part of this conversation:\n\n${compaction.summary}`
+      content: `Summary of the earlier part of this conversation:\n\n${compaction.summary}${asked}`
     })
   }
 
@@ -652,4 +712,24 @@ async function runCompletion(
     : finished
 
   await persist(cleaned, set, get)
+
+  // The reply is on screen and nobody is waiting: this is the moment to make
+  // room for the next one. Deliberately not awaited — the next send joins it.
+  maybeCompactAhead(conversationId, get)
+}
+
+/**
+ * Start summarising before the window is tight enough to matter.
+ *
+ * Compaction takes about as long as a short reply, and doing it here spends
+ * that time while the reply that triggered it is still being read rather than
+ * in front of the next question.
+ */
+function maybeCompactAhead(conversationId: string, get: Getter): void {
+  const conversation = get().byId[conversationId]
+  const limit = useServerStore.getState().status?.contextPerSlot ?? null
+  if (!conversation?.autoCompact || !limit) return
+  if (compactableMessages(conversation, limit).length === 0) return
+  if (projectedPromptTokens(conversation, '') <= limit * PREEMPT_AT) return
+  void get().compact(conversationId)
 }

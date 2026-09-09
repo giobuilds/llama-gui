@@ -4,7 +4,10 @@ import {
   compactableMessages,
   projectedPromptTokens,
   shouldCompact,
-  summaryBudget
+  summaryBudget,
+  trimToLastSentence,
+  verbatimUserMessages,
+  PREEMPT_AT
 } from '../../src/renderer/src/state/compact.js'
 import { buildTurns } from '../../src/renderer/src/state/chatStore.js'
 import type { ChatMessageView, ConversationView } from '@shared/types.js'
@@ -83,7 +86,7 @@ console.log('\nchoosing what a summary replaces')
   ok('keeps the four most recent turns verbatim')
 
   const already = chat(messages, {
-    compaction: { summary: 'earlier', throughMessageId: messages[3]!.id, messageCount: 4, at: 1 }
+    compaction: { summary: 'earlier', throughMessageId: messages[3]!.id, messageCount: 4, at: 1, userMessages: [] }
   })
   const next = compactableMessages(already, 16384)
   assert.deepEqual(next.map((m) => m.content), ['m4', 'm5'])
@@ -122,6 +125,67 @@ console.log('\nthe summary has to fit as well')
   ok('and there is a floor, below which a summary says nothing useful')
 }
 
+// Summarising costs about as long as a short reply. Started early it happens
+// while the previous reply is being read; started late, it is a stall.
+console.log('\nstarting before it is urgent')
+{
+  assert.ok(PREEMPT_AT < COMPACT_AT, `${PREEMPT_AT} should be below ${COMPACT_AT}`)
+  ok('the background threshold sits below the one the user waits for')
+}
+
+// The user's own turns are short, carry the requests the conversation is
+// about, and are the worst thing to hand to a small model to paraphrase.
+console.log('\nkeeping the user in their own words')
+{
+  const older = [
+    msg('user', 'make it print word by word'),
+    msg('assistant', 'x'.repeat(4000)),
+    msg('user', 'now add branching'),
+    msg('assistant', 'y'.repeat(4000))
+  ]
+  assert.deepEqual(verbatimUserMessages(older, 4096), [
+    'make it print word by word',
+    'now add branching'
+  ])
+  ok('user turns are kept and assistant turns are not')
+
+  const long = [msg('user', 'a'.repeat(8000)), msg('user', 'the recent one')]
+  assert.deepEqual(verbatimUserMessages(long, 4096), ['the recent one'])
+  ok('and only as many as the budget allows, newest first')
+
+  assert.deepEqual(verbatimUserMessages([msg('user', '   ')], 4096), [])
+  ok('an empty turn is not worth carrying')
+}
+{
+  const messages = [msg('user', 'the original request'), msg('assistant', 'a1'), msg('user', 'q2'), msg('assistant', 'a2')]
+  const c = chat(messages, {
+    compaction: {
+      summary: 'notes', throughMessageId: messages[1]!.id, messageCount: 2, at: 1,
+      userMessages: ['the original request']
+    }
+  })
+  const sent = buildTurns(c).map((t) => t.content).join(' | ')
+  assert.ok(sent.includes('the original request'), sent)
+  ok('what they asked reaches the model word for word, not paraphrased')
+  assert.equal(buildTurns(c).filter((t) => t.role === 'user').length, 1)
+  ok('carried inside the summary turn rather than as replayed user turns')
+}
+
+// A summary cut off by the token cap reads as damage in the transcript.
+console.log('\nfinishing the last sentence')
+{
+  assert.equal(
+    trimToLastSentence('He chose C. They built a story engine. Next comes inp'),
+    'He chose C. They built a story engine.'
+  )
+  ok('a cut-off tail is trimmed back to the last full sentence')
+  assert.equal(trimToLastSentence('All done here.'), 'All done here.')
+  ok('a complete summary is left alone')
+  const mostlyOneSentence = 'A very long single clause that never ends properly and just keeps going onward'
+  assert.equal(trimToLastSentence(mostlyOneSentence), mostlyOneSentence)
+  ok('but trimming is skipped when it would throw most of it away')
+}
+
 console.log('\nwhat actually gets sent')
 {
   const messages = [
@@ -132,7 +196,7 @@ console.log('\nwhat actually gets sent')
   ]
   const c = chat(messages, {
     systemPrompt: 'be helpful',
-    compaction: { summary: 'They discussed the first thing.', throughMessageId: messages[1]!.id, messageCount: 2, at: 1 }
+    compaction: { summary: 'They discussed the first thing.', throughMessageId: messages[1]!.id, messageCount: 2, at: 1, userMessages: [] }
   })
   const turns = buildTurns(c)
   const text = turns.map((t) => `${t.role}:${t.content}`).join(' | ')
@@ -151,7 +215,7 @@ console.log('\nwhat actually gets sent')
   // A summary whose anchor was deleted must not silently drop the transcript.
   const messages = [msg('user', 'kept'), msg('assistant', 'also kept')]
   const c = chat(messages, {
-    compaction: { summary: 's', throughMessageId: 'a-message-that-is-gone', messageCount: 2, at: 1 }
+    compaction: { summary: 's', throughMessageId: 'a-message-that-is-gone', messageCount: 2, at: 1, userMessages: [] }
   })
   const text = buildTurns(c).map((t) => t.content).join(' | ')
   assert.ok(text.includes('kept') && text.includes('also kept'))
