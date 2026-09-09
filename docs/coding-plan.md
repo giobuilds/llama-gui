@@ -58,6 +58,12 @@ Measured or observed in this repo, so it is not rediscovered.
   leak" was vacuous. The harness now plants it beside the code the task leads
   to and records whether it was actually shown, and only counts leaks among
   runs where it was.
+- **A corpus that contains the exam is not a corpus.** The first full matrix
+  ran against a copy of HEAD that included the harness, and 21 of 90 runs read
+  `tests/harness/tasks.ts` — the expected paths and symbols for every task.
+  Sixteen passes were tainted. Workspaces now exclude the harness and this
+  plan. Anything that names the answers has to be kept out of what the model
+  can read, every time, and checked by looking at what was read.
 - **Containment is available on the development machine.** bubblewrap 0.12,
   unprivileged user namespaces, Landlock in the LSM list (ABI 9). The probe is
   `tests/harness/probe-sandbox.mjs`; it has not yet been run on a clean
