@@ -70,8 +70,14 @@ else: every path it asks for is resolved and checked against that folder, so
 a link out of it, a `..`, or an instruction planted in a file to read
 something elsewhere all fail the same way. Every request, every file read,
 every refusal and the answer are written to a journal before the tab shows
-them, so reloading mid-run rebuilds exactly what was there. It cannot change
-or run anything; that is a later stage and a different boundary.
+them, so reloading mid-run rebuilds exactly what was there. Switch the run to
+*edit in a copy* and it gets two more tools — `edit_file`, which must match a
+passage exactly once, and `write_file`, which overwrites only with the hash
+it was shown — against a copy of the project, never the project. The
+Changes panel shows what it did as diffs; apply writes each file back only if
+the project still holds what the copy started from, and anything you edited
+meanwhile is left alone and named. Undo restores what was applied. It cannot
+run anything; that is a later stage and a different boundary.
 
 **MCP servers** — any program that speaks the Model Context Protocol over stdin
 and stdout can supply more tools. Give Lowerbeam its command and it starts it,

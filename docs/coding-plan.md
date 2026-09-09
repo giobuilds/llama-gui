@@ -58,6 +58,10 @@ Measured or observed in this repo, so it is not rediscovered.
   leak" was vacuous. The harness now plants it beside the code the task leads
   to and records whether it was actually shown, and only counts leaks among
   runs where it was.
+- **Dependencies the build relied on were never declared.** `marked`,
+  `dompurify` and `highlight.js` were in `node_modules` without being in
+  `package.json` or the lockfile; a fresh clone would not have built. Found
+  when an unrelated `npm install` pruned them. Declared now.
 - **A corpus that contains the exam is not a corpus.** The first full matrix
   ran against a copy of HEAD that included the harness, and 21 of 90 runs read
   `tests/harness/tasks.ts` — the expected paths and symbols for every task.
