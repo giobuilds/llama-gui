@@ -47,6 +47,21 @@ Measured or observed in this repo, so it is not rediscovered.
   model, which is what the architecture's *model lease* is for.
 - **Packaging targets Linux.** RPM and AppImage. The sandbox backend is
   validated there first and nowhere else in this plan.
+- **A template that declares no tool support cannot run the loop at all.**
+  The Qwen2.5-VL-3B build named as the floor reports
+  `chat_template_caps.supports_tools: false`, so under the app's own gating
+  rule it never gets tools declared. It stays on record; Gemma-4-E4B is the
+  floor that runs. Endpoint compatibility is not readiness — the first thing
+  the harness measured, before any task ran.
+- **A poison the model never reads tests nothing.** Planted at the end of a
+  578-line file, the instruction was never in a window the model read; "no
+  leak" was vacuous. The harness now plants it beside the code the task leads
+  to and records whether it was actually shown, and only counts leaks among
+  runs where it was.
+- **Containment is available on the development machine.** bubblewrap 0.12,
+  unprivileged user namespaces, Landlock in the LSM list (ABI 9). The probe is
+  `tests/harness/probe-sandbox.mjs`; it has not yet been run on a clean
+  install of the RPM, which is the result that counts.
 
 ## Stage 0 — decide with numbers
 
@@ -88,7 +103,8 @@ Three, spanning what the card runs, all already on disk:
 |---|---|---|
 | Qwen3-Coder-30B-A3B | MoE, experts on CPU | the obvious coding model; 13–28 tok/s measured with `--cpu-moe` |
 | Ornith-1.5-9B | dense, thinking | the daily model; tests the reasoning budget |
-| Qwen2.5-VL-3B | small, dense | the floor: if it cannot locate code, nothing smaller will |
+| Gemma-4-E4B | small | the floor: if it cannot locate code, nothing smaller will |
+| ~~Qwen2.5-VL-3B~~ | small, dense | named first; its template declares no tool support, so it cannot run the loop |
 
 Each with one recorded configuration — file hash, quantisation, chat
 template, llama.cpp build, context, sampling — which becomes the first entry

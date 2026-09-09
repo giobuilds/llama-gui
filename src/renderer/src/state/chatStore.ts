@@ -5,7 +5,7 @@ import type {
   ConversationSummaryView,
   ConversationView
 } from '@shared/types.js'
-import { streamChat, type ChatTurn, type StreamedToolCall } from '../api/chatClient.js'
+import { streamChat, type ChatTurn, type StreamedToolCall } from '@shared/chatClient.js'
 import type { ToolCallView, ToolDefinition } from '@shared/types.js'
 import { useServerStore } from './serverStore.js'
 import {

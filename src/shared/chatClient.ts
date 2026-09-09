@@ -1,12 +1,14 @@
 import type { ChatSettingsView } from '@shared/types.js'
 
 /**
- * Streams a completion straight from llama-server to the renderer.
+ * Streams a completion from llama-server.
  *
- * Deliberately not routed through IPC: every token would otherwise cross a
- * process boundary and be serialised individually, for no benefit. The main
- * process keeps the privileged work; this is just an HTTP request to loopback,
- * which the CSP allows.
+ * Shared rather than renderer-only because it has no renderer in it: an HTTP
+ * request to loopback and a parser for the stream that comes back. The
+ * renderer calls it directly — routing every token through IPC would serialise
+ * each one across a process boundary for no benefit — and the agent worker
+ * calls the same function from Node, so the two never drift apart in how they
+ * assemble a tool call or count a token.
  */
 
 /** A tool call assembled from the stream's fragments. */

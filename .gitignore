@@ -5,3 +5,7 @@ dist/
 .vite/
 *.tsbuildinfo
 tests/.build/
+
+# Stage 0 harness output: journals and answers per run, kept locally
+tests/harness/results/
+tests/harness/matrix.log
