@@ -93,8 +93,10 @@ const VERBATIM_SHARE = 0.1
  */
 export function projectedPromptTokens(conversation: ConversationView, pending: string): number {
   const withUsage = [...conversation.messages].reverse().find((m) => m.usage)
+  // Cached prefix plus what was processed plus what was written: the whole
+  // window, not the part the server happened to work on this time.
   const measured = withUsage?.usage
-    ? withUsage.usage.promptTokens + withUsage.usage.predictedTokens
+    ? (withUsage.usage.cacheTokens ?? 0) + withUsage.usage.promptTokens + withUsage.usage.predictedTokens
     : null
   if (measured === null) return estimateTokens(conversation)
   // Anything after the measured turn has not been through the server yet.

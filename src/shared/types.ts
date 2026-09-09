@@ -566,7 +566,7 @@ export interface ChatMessageView {
   /** Tool calls the assistant made on this turn, with what came back. */
   toolCalls?: ToolCallView[]
   /** The server's own token counts for the request that produced this turn. */
-  usage?: { promptTokens: number; predictedTokens: number }
+  usage?: { promptTokens: number; predictedTokens: number; cacheTokens?: number }
   /** Generation ended because the window filled, not because the model was done. */
   ranOutOfContext?: boolean
   createdAt: number

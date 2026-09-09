@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { buildTurns } from '../../src/renderer/src/state/chatStore.js'
+import { projectConversation as buildTurns } from '@context/project.js'
 import type { ConversationView } from '@shared/types.js'
 
 let n = 0

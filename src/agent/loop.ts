@@ -1,10 +1,12 @@
 import { randomUUID } from 'node:crypto'
 import type { ChatSettingsView } from '@shared/types.js'
+import type { TokenUsage } from '@shared/chatClient.js'
 import type { JournalEvent, RunOutcome, TokenCount } from '@shared/coding.js'
 import { JOURNAL_VERSION } from '@shared/coding.js'
-import { streamChat, type ChatTurn, type StreamedToolCall } from '@shared/chatClient.js'
+import { streamChat, windowUsed, type ChatTurn, type StreamedToolCall } from '@shared/chatClient.js'
 import type { Grant } from './grant.js'
 import { AGENT_TOOLS, runAgentTool } from './tools.js'
+import { foldToolTurns, nextFoldIndex } from '@context/fold.js'
 
 /**
  * The reference loop: inspect, decide, act, observe, repeat, answer.
@@ -32,6 +34,10 @@ export interface RunRequest {
   signal?: AbortSignal
   /** The run's id, when the caller has to know it before the first event. */
   runId?: string
+  /** The window this run has, so older tool results can be folded before it fills. */
+  contextLimit?: number | null
+  /** Off only to measure what folding buys; never off in the app. */
+  fold?: boolean
   onEvent: (event: JournalEvent) => void
   /**
    * Sees every tool result in full, which the journal deliberately does not
@@ -91,6 +97,9 @@ export async function runTask(req: RunRequest): Promise<RunResult> {
   let rounds = 0
   let answer = ''
   let outcome: RunOutcome = 'rounds'
+  let occupancy: number | null = null
+  // Only ever moves forward: see fold.ts for why the prefix must stay put.
+  let foldBefore = 0
 
   const finish = (): RunResult => {
     const ms = Date.now() - started
@@ -103,19 +112,24 @@ export async function runTask(req: RunRequest): Promise<RunResult> {
       outcome = req.signal?.aborted ? 'cancelled' : 'timeout'
       return finish()
     }
-    emit({ type: 'model.request', round: rounds, turns: turns.length, tools: AGENT_TOOLS.map((t) => t.name) })
+    // What is sent is not what is kept: once the window is filling, every
+    // tool result before the newest round goes as its first line — and then
+    // stays that way, so the server can cache the prefix again.
+    if (req.fold !== false) foldBefore = nextFoldIndex(turns, foldBefore, occupancy, req.contextLimit ?? null)
+    const { turns: sent, folded } = req.fold === false ? { turns, folded: 0 } : foldToolTurns(turns, foldBefore)
+    emit({ type: 'model.request', round: rounds, turns: sent.length, tools: AGENT_TOOLS.map((t) => t.name), folded })
 
     let content = ''
     let reasoningChars = 0
     let calls: StreamedToolCall[] = []
     let failure: string | null = null
-    let usage: TokenCount | null = null
+    let usage: TokenUsage | null = null
     let finishReason: string | null = null
     const t0 = Date.now()
 
     await streamChat(
       req.baseUrl,
-      turns,
+      sent,
       req.settings,
       deadline,
       {
@@ -141,6 +155,7 @@ export async function runTask(req: RunRequest): Promise<RunResult> {
       const u = usage as TokenCount
       tokens.promptTokens += u.promptTokens
       tokens.predictedTokens += u.predictedTokens
+      occupancy = windowUsed(usage)
     }
     emit({
       type: 'model.response',

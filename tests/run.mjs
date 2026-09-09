@@ -50,6 +50,7 @@ async function run(suite) {
     // Electron is stubbed; anything needing a real window is a UI drive instead.
     alias: {
       '@shared': join(repo, 'src/shared'),
+      '@context': join(repo, 'src/context'),
       electron: join(here, 'stubs/electron.ts')
     },
     logLevel: 'silent'

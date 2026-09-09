@@ -54,7 +54,7 @@ export const messageSchema = z.object({
   stopped: z.boolean().optional(),
   /** The server's own token counts for the request that produced this turn. */
   usage: z
-    .object({ promptTokens: z.number(), predictedTokens: z.number() })
+    .object({ promptTokens: z.number(), predictedTokens: z.number(), cacheTokens: z.number().optional() })
     .optional(),
   /** Generation ended because the context window filled, not because the model was done. */
   ranOutOfContext: z.boolean().optional(),

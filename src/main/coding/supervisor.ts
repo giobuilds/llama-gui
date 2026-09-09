@@ -90,7 +90,7 @@ export class CodingSupervisor extends EventEmitter<{
     this.emit('runs', this.list())
 
     // Not awaited: the caller gets the summary at once and follows events.
-    void this.drive(id, summary, grant, journal, abort, `http://127.0.0.1:${status.port}`, req.task)
+    void this.drive(id, summary, grant, journal, abort, `http://127.0.0.1:${status.port}`, req.task, status.contextPerSlot)
     return summary
   }
 
@@ -113,7 +113,8 @@ export class CodingSupervisor extends EventEmitter<{
     journal: Journal,
     abort: AbortController,
     baseUrl: string,
-    task: string
+    task: string,
+    contextLimit: number | null
   ): Promise<void> {
     try {
       const result = await runTask({
@@ -126,6 +127,7 @@ export class CodingSupervisor extends EventEmitter<{
         timeoutMs: 6 * 60_000,
         signal: abort.signal,
         runId: id,
+        contextLimit,
         onEvent: (event) => {
           // Journal first. The renderer is a view of the record, not the
           // other way round.

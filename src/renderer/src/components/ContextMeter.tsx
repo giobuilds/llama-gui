@@ -1,6 +1,6 @@
 import { activeConversation, useChatStore } from '../state/chatStore.js'
 import { useServerStore } from '../state/serverStore.js'
-import { COMPACT_AT, projectedPromptTokens } from '../state/compact.js'
+import { COMPACT_AT, projectedPromptTokens } from '@context/compact.js'
 
 /**
  * How much of this chat's window is spoken for.

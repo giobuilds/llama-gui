@@ -169,13 +169,33 @@ mid-run and rebuilt nine journal lines from disk then kept receiving live
 events to twenty-six, the answer rendered and named the right function, a
 second run cancelled with `cancelled` in its journal, and a clean quit.
 
-Two things from the list below are deliberately not in it yet. The loop runs
-in the main process rather than a utility process — it has no Electron in it
-and takes only a grant and a callback, so the move is a transport change,
-and it is read-only, so what it can do from main is list, search and read
-inside one directory. And chat still runs its own compaction in the
-renderer; the shared context engine is the next slice, with the existing
-suite as its gate.
+**Context engine.** Shipped as `src/context/` — `project.ts` (what a
+conversation looks like to the model), `compact.ts` (moved from the
+renderer unchanged), and `fold.ts` (bounding an agent loop's working set).
+Chat and the coding loop both import from it; nothing context-shaped is left
+in `chatStore` but the orchestration. The existing suite passed unchanged
+across the move, which was the gate.
+
+Building it found an accounting error that had been wrong since the context
+meter was added: llama.cpp's `prompt_n` is what the server *processed*, not
+what the prompt held — the cached prefix is reported separately as `cache_n`
+and was never read. Every follow-up turn hits the cache, so the meter, the
+compaction trigger and the cut-off notice all under-counted; a meter reading
+"146 of 1,024" on a conversation that had just filled its window was this.
+Occupancy is now `cache_n + prompt_n + predicted_n` everywhere.
+
+The fold is sticky on purpose. Folding older tool results on every round
+past half the window held occupancy down and tripled the tokens processed —
+a changing prefix is a prefix the server cannot cache. It now folds once,
+when occupancy crosses 60% of the window, everything before the newest
+round, and then leaves the prefix alone. Measured in an 8,192-token window
+on the 9B: unfolded, two of three tasks overflowed and errored; folded, both
+answered, with one fold event each and occupancy held under 5,700.
+
+The loop still runs in the main process rather than a utility process — it
+has no Electron in it and takes only a grant and a callback, so the move is
+a transport change, and it is read-only, so what it can do from main is
+list, search and read inside one directory.
 
 **Ships:**
 
