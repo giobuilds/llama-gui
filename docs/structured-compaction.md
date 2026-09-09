@@ -162,12 +162,14 @@ Measured while building the current implementation, and worth not rediscovering:
 - **What does extraction cost?** It runs over every compacted turn rather than
   once over a blob; that may be more total tokens than prose summarising, not
   fewer.
-- **How is a stale record repaired?** A decision reversed twenty turns later
-  must update the earlier entry, not sit beside it contradicting it.
-- **Is a structured record worse as *prompt* material?** Models are trained on
-  prose. A JSON blob may be less effective in-context than the paragraph it
-  replaces, even if it is more accurate. Worth measuring early — it could
-  invalidate the whole direction, and it is cheap to test.
+- ~~**How is a stale record repaired?**~~ Answered in [Direction](direction.md):
+  slots are facts (append-only, superseded by reference), state (overwritten)
+  or transient (replaced every step). A reversed decision is a new fact that
+  supersedes the old one, which stays, marked.
+- ~~**Is a structured record worse as *prompt* material?**~~ Sidestepped in
+  [Direction](direction.md): the stored form is structured and checkable, the
+  prompt form is rendered from it by a template. The model never sees the
+  record's shape unless a test shows it should.
 
 ## Beyond Lowerbeam
 
