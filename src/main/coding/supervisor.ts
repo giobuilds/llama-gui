@@ -8,6 +8,8 @@ import { runTask } from '../../agent/loop.js'
 import type { ServerSupervisor } from '../supervisor.js'
 import { Journal } from './journal.js'
 import { Workspace } from './workspace.js'
+import { probeSandbox, runInSandbox } from './sandbox.js'
+import { writeFile } from 'node:fs/promises'
 import type { ApplyResult, ChangeSet } from '@shared/coding.js'
 
 /**
@@ -72,10 +74,17 @@ export class CodingSupervisor extends EventEmitter<{
     // the right time to find out — not on the first tool call. An edit run's
     // grant is on a copy of the project, never the project.
     let grant: Grant
-    if (req.mode === 'edit') {
-      const workspace = await Workspace.create((await Grant.open(req.projectRoot)).root, this.workspaceDir(id))
+    let workspace: Workspace | null = null
+    if (req.mode === 'run') {
+      // No box, no run mode: it is refused here, with the reason, rather than
+      // running anything unsandboxed and calling that a sandbox.
+      const probe = await probeSandbox()
+      if (!probe.ok) throw new Error(`Commands cannot be run on this machine: ${probe.reason}`)
+    }
+    if (req.mode === 'edit' || req.mode === 'run') {
+      workspace = await Workspace.create((await Grant.open(req.projectRoot)).root, this.workspaceDir(id))
       this.workspaces.set(id, workspace)
-      grant = await Grant.open(workspace.root, 'edit')
+      grant = await Grant.open(workspace.root, req.mode)
     } else {
       grant = await Grant.open(req.projectRoot)
     }
@@ -87,7 +96,7 @@ export class CodingSupervisor extends EventEmitter<{
     const summary: CodingRunSummary = {
       id,
       task: req.task,
-      projectRoot: req.mode === 'edit' ? (await Grant.open(req.projectRoot)).root : grant.root,
+      projectRoot: workspace ? workspace.manifest.projectRoot : grant.root,
       mode: req.mode,
       appliedAt: null,
       model,
@@ -142,6 +151,32 @@ export class CodingSupervisor extends EventEmitter<{
         runId: id,
         contextLimit,
         mode,
+        execute:
+          mode === 'run'
+            ? async (command, signal) => {
+                const ws = this.workspaces.get(id)
+                if (!ws) throw new Error('no workspace')
+                const r = await runInSandbox({
+                  workspace: ws.root,
+                  projectRoot: ws.manifest.projectRoot,
+                  command,
+                  timeoutMs: 120_000,
+                  maxOutputBytes: 512 * 1024,
+                  signal
+                })
+                // Full output beside the journal: the model sees a tail, a
+                // person can see all of it.
+                const output = r.stdout + (r.stderr ? (r.stdout ? '\n' : '') + r.stderr : '')
+                await writeFile(join(this.dir, `${id}.cmd-${Date.now()}.txt`), `$ ${command}\n${output}`)
+                return {
+                  exitCode: r.exitCode,
+                  output,
+                  truncated: r.stdoutTruncated || r.stderrTruncated,
+                  timedOut: r.timedOut,
+                  ms: r.ms
+                }
+              }
+            : undefined,
         onEvent: (event) => {
           // Journal first. The renderer is a view of the record, not the
           // other way round.
@@ -166,6 +201,11 @@ export class CodingSupervisor extends EventEmitter<{
       this.live.delete(id)
       this.emit('runs', this.list())
     }
+  }
+
+  /** Whether commands can be run on this machine, and if not, why. */
+  sandbox(): ReturnType<typeof probeSandbox> {
+    return probeSandbox()
   }
 
   /** The run's changes against the baseline its workspace was taken from. */
@@ -259,6 +299,12 @@ export function summarise(events: JournalEvent[]): CodingRunSummary | null {
     }
   }
   const rounds = events.filter((e) => e.type === 'model.request').length
+  // A command that was started and never recorded as finished is uncertain:
+  // it may have run to completion, or not at all, and it is never re-run on
+  // the run's behalf. Whatever it did is in the workspace.
+  const lastCommand = [...events].reverse().find((e) => e.type === 'tool.call' && e.name === 'run_command')
+  const commandFinished = lastCommand ? events.some((e) => e.type === 'command.finished' && e.seq > lastCommand.seq) : true
+  const command = !commandFinished && lastCommand?.type === 'tool.call' ? String(lastCommand.args['command'] ?? '') : null
   return {
     id: started.run,
     task: started.task,
@@ -269,7 +315,10 @@ export function summarise(events: JournalEvent[]): CodingRunSummary | null {
     startedAt: started.ts,
     finishedAt: events[events.length - 1]?.ts ?? started.ts,
     outcome: 'error',
-    answer: 'The app closed while this run was in progress. What it had read is in the journal; it produced no answer.',
+    answer:
+      command !== null
+        ? `The app closed while this run was in progress, with a command started and not finished: \`${command}\`. Whether it ran to completion is unknown, and it was not run again. What it had read is in the journal; it produced no answer.`
+        : 'The app closed while this run was in progress. What it had read is in the journal; it produced no answer.',
     rounds,
     denials
   }

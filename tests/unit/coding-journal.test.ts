@@ -62,6 +62,23 @@ console.log('\nsummaries come from the journal alone')
   assert.ok(/closed while this run was in progress/.test(cut.answer)); ok('in words, not as a result')
   assert.equal(cut.rounds, 2); ok('with how far it got')
 
+  const mid = summarise([
+    ev(0, { type: 'run.started', task: 't', model: 'm', grantRoot: '/p', mode: 'run' }),
+    ev(1, { type: 'model.request', round: 1, turns: 2, tools: [] }),
+    ev(2, { type: 'tool.call', callId: 'a', name: 'run_command', args: { command: 'node tests/run.mjs' } }),
+    ev(3, { type: 'command.finished', command: 'node tests/run.mjs', exitCode: 1, ms: 5, timedOut: false, outputBytes: 0, truncated: false }),
+    ev(4, { type: 'tool.call', callId: 'b', name: 'run_command', args: { command: 'npm test' } })
+  ])
+  assert.ok(mid); assert.match(mid.answer, /started and not finished: `npm test`/)
+  ok('a run cut off with a command in flight names that command as unfinished')
+  assert.match(mid.answer, /unknown/); assert.match(mid.answer, /not run again/); ok('and says its outcome is unknown, not that it will be retried')
+  const after = summarise([
+    ev(0, { type: 'run.started', task: 't', model: 'm', grantRoot: '/p', mode: 'run' }),
+    ev(1, { type: 'tool.call', callId: 'a', name: 'run_command', args: { command: 'ls' } }),
+    ev(2, { type: 'command.finished', command: 'ls', exitCode: 0, ms: 5, timedOut: false, outputBytes: 0, truncated: false })
+  ])
+  assert.ok(after && !/not finished/.test(after.answer)); ok('a command that did finish before the cut is not called unfinished')
+
   assert.equal(summarise([]), null); ok('and an empty journal is no run at all')
 }
 

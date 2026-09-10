@@ -69,6 +69,17 @@ export type JournalEvent =
       chars: number
     })
   | (Base & {
+      /** A command the run executed in the sandbox. Full output is an artifact; this is the account of it. */
+      type: 'command.finished'
+      command: string
+      exitCode: number | null
+      ms: number
+      timedOut: boolean
+      /** Bytes of output kept, and whether more was dropped. */
+      outputBytes: number
+      truncated: boolean
+    })
+  | (Base & {
       type: 'run.finished'
       outcome: RunOutcome
       answer: string
@@ -91,9 +102,11 @@ export type RunOutcome =
 /**
  * What a run may do. `inspect` is list, search and read inside the project.
  * `edit` adds write_file and edit_file — against an isolated copy of the
- * project, never the project itself; the person applies the result.
+ * project, never the project itself; the person applies the result. `run`
+ * adds run_command: commands in that copy, inside a sandbox with no network,
+ * which is how the model gets to run the tests on its own change.
  */
-export type CodingMode = 'inspect' | 'edit'
+export type CodingMode = 'inspect' | 'edit' | 'run'
 
 export type ChangeKind = 'created' | 'modified' | 'deleted'
 

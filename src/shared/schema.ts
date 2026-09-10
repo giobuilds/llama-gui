@@ -81,7 +81,7 @@ export const readerBoundsSchema = z.object({
 export const codingStartSchema = z.object({
   projectRoot: z.string().min(1).max(4096),
   task: z.string().min(1).max(4000),
-  mode: z.enum(['inspect', 'edit']).default('inspect')
+  mode: z.enum(['inspect', 'edit', 'run']).default('inspect')
 })
 
 export const toolRunSchema = z.object({
