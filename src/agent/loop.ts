@@ -7,6 +7,8 @@ import { streamChat, windowUsed, type ChatTurn, type StreamedToolCall } from '@s
 import type { Grant } from './grant.js'
 import { AGENT_TOOLS, WRITE_TOOLS, runAgentTool } from './tools.js'
 import { foldToolTurns, nextFoldIndex } from '@context/fold.js'
+import { checkpointFrom, renderCheckpoint, compactWorkingSet } from '@context/checkpoint.js'
+import { COMPACT_AT } from '@context/compact.js'
 
 /**
  * The reference loop: inspect, decide, act, observe, repeat, answer.
@@ -74,6 +76,20 @@ export interface RunResult {
   denials: number
   /** Every path the model asked for, granted or not. */
   reads: string[]
+  /** How many times the working set was rebuilt from the record. */
+  compactions: number
+}
+
+/** How llama.cpp declines a request larger than the slot's window. */
+const OVERFLOW = /exceed(s|_)?.{0,20}context size/i
+
+/**
+ * Code runs denser than prose — nearer three characters a token than four —
+ * and this is a trigger, so it errs towards compacting a round early rather
+ * than a round late.
+ */
+function roughTokens(chars: number): number {
+  return Math.ceil(chars / 3)
 }
 
 const EDIT_POLICY =
@@ -113,14 +129,19 @@ export async function runTask(req: RunRequest): Promise<RunResult> {
   const timeout = AbortSignal.timeout(req.timeoutMs ?? 5 * 60_000)
   const deadline = req.signal ? AbortSignal.any([timeout, req.signal]) : timeout
   let seq = 0
+  // The loop keeps its own copy of the record: the notes it continues with
+  // after compaction are projected from it, and from nothing else.
+  const events: JournalEvent[] = []
   const emit = (event: Emitted): void => {
-    req.onEvent({ v: JOURNAL_VERSION, run, seq: seq++, ts: Date.now(), ...event } as JournalEvent)
+    const full = { v: JOURNAL_VERSION, run, seq: seq++, ts: Date.now(), ...event } as JournalEvent
+    events.push(full)
+    req.onEvent(full)
   }
 
   const mode = req.mode ?? 'inspect'
   emit({ type: 'run.started', task: req.task, model: req.model, grantRoot: req.grant.root, mode })
 
-  const turns: ChatTurn[] = [
+  let turns: ChatTurn[] = [
     { role: 'system', content: mode === 'run' ? RUN_POLICY : mode === 'edit' ? EDIT_POLICY : POLICY },
     { role: 'user', content: req.task }
   ]
@@ -139,14 +160,36 @@ export async function runTask(req: RunRequest): Promise<RunResult> {
   let answer = ''
   let outcome: RunOutcome = 'rounds'
   let occupancy: number | null = null
+  let overflowRetried = false
   // Only ever moves forward: see fold.ts for why the prefix must stay put.
   let foldBefore = 0
+  // Characters of tool results appended since the window was last measured:
+  // what the next request adds to the occupancy the server reported.
+  let appendedChars = 0
+  let compactions = 0
+
+  /**
+   * Replace everything before the newest round with notes projected from the
+   * record. `foldNewest` when the newest round alone would overfill the
+   * window — the case where the server has already refused the request.
+   */
+  const compact = (reason: 'window' | 'overflow', foldNewest: boolean): void => {
+    const record = checkpointFrom(events)
+    const notes = renderCheckpoint(record)
+    turns = compactWorkingSet(turns, notes, foldNewest)
+    foldBefore = 0
+    // Measured again on the next response; until then nothing is known.
+    occupancy = null
+    appendedChars = 0
+    compactions += 1
+    emit({ type: 'checkpoint', throughSeq: record.throughSeq, record, reason, occupancy, chars: notes.length })
+  }
 
 
   const finish = (): RunResult => {
     const ms = Date.now() - started
     emit({ type: 'run.finished', outcome, answer, rounds, ms, tokens, denials })
-    return { run, outcome, answer, rounds, ms, tokens, denials, reads }
+    return { run, outcome, answer, rounds, ms, tokens, denials, reads, compactions }
   }
 
   for (rounds = 1; rounds <= maxRounds; rounds++) {
@@ -158,6 +201,13 @@ export async function runTask(req: RunRequest): Promise<RunResult> {
     // tool result before the newest round goes as its first line — and then
     // stays that way, so the server can cache the prefix again.
     if (req.fold !== false) foldBefore = nextFoldIndex(turns, foldBefore, occupancy, req.contextLimit ?? null)
+    // Past folding, compaction: when what the next request would carry — the
+    // window as last measured plus what has been appended since — is most of
+    // the window, everything before the newest round becomes notes.
+    if (req.fold !== false && occupancy !== null && req.contextLimit) {
+      const projected = occupancy + roughTokens(appendedChars)
+      if (projected > req.contextLimit * COMPACT_AT) compact('window', false)
+    }
     const { turns: sent, folded } = req.fold === false ? { turns, folded: 0 } : foldToolTurns(turns, foldBefore)
     emit({ type: 'model.request', round: rounds, turns: sent.length, tools: tools.map((t) => t.name), folded })
 
@@ -198,6 +248,7 @@ export async function runTask(req: RunRequest): Promise<RunResult> {
       tokens.promptTokens += u.promptTokens
       tokens.predictedTokens += u.predictedTokens
       occupancy = windowUsed(usage)
+      appendedChars = 0
     }
     emit({
       type: 'model.response',
@@ -211,10 +262,20 @@ export async function runTask(req: RunRequest): Promise<RunResult> {
     })
 
     if (failure) {
+      // The server refusing a request that overflowed its window is the one
+      // failure the loop can answer: once, by compacting harder than the
+      // projection did — the newest round folded too — and asking again.
+      if (OVERFLOW.test(failure) && req.fold !== false && !deadline.aborted && !overflowRetried) {
+        overflowRetried = true
+        compact('overflow', true)
+        rounds -= 1
+        continue
+      }
       outcome = req.signal?.aborted ? 'cancelled' : deadline.aborted ? 'timeout' : 'error'
       answer = failure
       return finish()
     }
+    overflowRetried = false
     if (finishReason === 'aborted') {
       outcome = req.signal?.aborted ? 'cancelled' : 'timeout'
       return finish()
@@ -253,6 +314,7 @@ export async function runTask(req: RunRequest): Promise<RunResult> {
         chars: result.content.length
       })
       turns.push({ role: 'tool', toolCallId: call.id, content: result.content })
+      appendedChars += result.content.length
     }
   }
 
