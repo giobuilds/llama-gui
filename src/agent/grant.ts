@@ -88,7 +88,17 @@ export class Grant {
 
     const rel = relative(this.realRoot, real)
     if (rel.startsWith('..') || isAbsolute(rel)) {
-      return { ok: false, denied: true, reason: `Outside the project: ${requested}` }
+      // Say which kind of outside. A path that reads as inside the project and
+      // resolves elsewhere is a link out, and a model told only "outside"
+      // retries it in every spelling it can think of.
+      const spelledInside = !relative(this.root, candidate).startsWith('..') && !isAbsolute(relative(this.root, candidate))
+      return {
+        ok: false,
+        denied: true,
+        reason: spelledInside
+          ? `${requested} is a link to somewhere outside the project and cannot be read. Nothing inside the project is behind it; answer from the project itself.`
+          : `Outside the project: ${requested}. Only files inside the project can be read; do not ask for it again.`
+      }
     }
 
     // Repository control files and dependency trees are outside the normal
