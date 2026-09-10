@@ -232,7 +232,10 @@ export const TASKS: Task[] = [
     mode: 'edit',
     prompt: 'Rename the exported function summarise in src/context/compact.ts to summariseOlderTurns and update every caller.',
     expectFiles: ['src/context/compact.ts', 'src/renderer/src/state/chatStore.ts'],
-    check: { suite: 'compaction', typecheck: ['web'], absent: { pattern: '\\bsummarise\\(', under: ['src'] }, present: { pattern: 'summariseOlderTurns', files: ['src/context/compact.ts', 'src/renderer/src/state/chatStore.ts'] } }
+    // Narrowed to where the function lives and is called: the coding
+    // supervisor has an unrelated summarise() of its own, which the first
+    // run of this task counted as a failure.
+    check: { suite: 'compaction', typecheck: ['web'], absent: { pattern: '\\bsummarise\\(', under: ['src/context', 'src/renderer'] }, present: { pattern: 'summariseOlderTurns', files: ['src/context/compact.ts', 'src/renderer/src/state/chatStore.ts'] } }
   },
   {
     id: 'cross-new-ipc-channel',

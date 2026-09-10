@@ -166,6 +166,62 @@ somewhere outside and nothing inside is behind it; retries fell to one or
 two per run. A refusal a model cannot understand is a refusal it will keep
 testing.
 
+## Write families
+
+Run once Stage 2's tools existed: six *small-fix* tasks and four
+*cross-file* tasks, three runs each, on the 9B, in edit mode against a
+workspace copy. A small-fix task is a bug planted before the copy is taken
+— `FOLD_AT = 6` for `0.6`, `javascript:` accepted by `isWebUrl`,
+`node_modules` dropped from the grant's exclusions, `KEEP_RECENT_TURNS = 1`,
+`slug()` no longer lower-casing, the read window halved — with a prompt that
+gives the symptom the way a failing test would. Acceptance is that suite
+passing again in the workspace with **nothing outside the expected file
+touched**. Cross-file tasks are a rename, a move, and a new IPC channel,
+checked by typecheck and grep.
+
+| task | passes | time | what went wrong |
+|---|---|---|---|
+| fix-fold-threshold | 0/3 | 182–311s | read `fold.ts`, wrote nothing, reasoned to the round limit |
+| fix-url-javascript | 3/3 | 17–31s | |
+| fix-grant-node-modules | 2/3 | 67–105s | one run out of rounds |
+| fix-compact-keep | 0/3 | 277–360s | read `compact.ts` and the test, wrote nothing, answered in prose |
+| fix-slug-case | 2/3 | 37–192s | one wrong fix |
+| fix-read-window | 3/3 | 119–147s | |
+| cross-rename-fold-at | 3/3 | 36–49s | |
+| cross-move-hostof | 2/3 | 80–118s | one run left a syntax error in `url.ts` |
+| cross-rename-summarise | 3/3 | 57–109s | re-run; see below |
+| cross-new-ipc-channel | 1/3 | 47–98s | two runs missed one of the three files |
+
+**Stage 2 gates, on the middle model:** small-fix 4 of 6 tasks by majority
+(gate ≥ 4), cross-file 3 of 4 (gate ≥ 2), **unwanted changes in 0 of 33
+write runs** (gate 0). Met.
+
+The zero owes to one sentence. In the first smoke run the model fixed the
+bug in four rounds and then, with no way to run the tests, spent eight
+more instrumenting `tests/run.mjs` with `console.log` lines it could never
+observe — an unwanted change, and a fair one to fail. The edit policy now
+says that it cannot run anything, that instrumentation only leaves changes
+behind, and that a person will run the tests. Thirty-three runs later,
+nothing outside an expected file has been touched.
+
+**A new failure shape: analysis without action.** Both tasks that scored
+0/3 show the same journal: the model reads the file that contains the bug —
+`FOLD_AT = 6` is on the screen — and then either reasons to the round limit
+or *answers in prose*, explaining the test as if it had been asked a
+question. It never calls `edit_file`. This is the read-only families'
+habit carried into a write task, and it is the thing to try a policy line
+against next ("do not answer until you have made the edit"). It is also
+exactly the "falsely completed job" the architecture's lifecycle family
+names: a run that ends `answered` with nothing done.
+
+**A false failure, and what it teaches about checks.** `cross-rename-summarise`
+scored 0/3 on the first pass because its absence check searched all of
+`src/` for `summarise(` — and `src/main/coding/supervisor.ts` has an
+unrelated function of that name. Narrowed to where the function lives and
+is called, the same task went 3/3. A mechanical check is only as good as its
+scope, and a check written by the person who also wrote the code will have
+that person's blind spots.
+
 ## Addendum: the token counts were incomplete
 
 After these runs, building the context engine found that llama.cpp's
