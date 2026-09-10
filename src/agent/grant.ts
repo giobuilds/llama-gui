@@ -18,11 +18,11 @@ export class Grant {
     readonly root: string,
     /** The root with every symlink resolved, which is what paths are checked against. */
     readonly realRoot: string,
-    /** Whether writes are allowed at all. Checked by the tools, not by the model. */
-    readonly mode: 'inspect' | 'edit'
+    /** What is allowed. Checked by the tools, not by the model. `run` includes `edit`. */
+    readonly mode: 'inspect' | 'edit' | 'run'
   ) {}
 
-  static async open(root: string, mode: 'inspect' | 'edit' = 'inspect'): Promise<Grant> {
+  static async open(root: string, mode: 'inspect' | 'edit' | 'run' = 'inspect'): Promise<Grant> {
     return new Grant(resolve(root), await realpath(root), mode)
   }
 
@@ -31,7 +31,7 @@ export class Grant {
    * its parent is what is resolved; the parent must exist and be inside.
    */
   async resolveForWrite(requested: string): Promise<Resolved> {
-    if (this.mode !== 'edit') return { ok: false, denied: true, reason: 'This run is read-only.' }
+    if (this.mode === 'inspect') return { ok: false, denied: true, reason: 'This run is read-only.' }
     const candidate = isAbsolute(requested) ? requested : resolve(this.root, requested)
     const name = basename(candidate)
     if (!name || name === '.' || name === '..') return { ok: false, denied: true, reason: `Not a file path: ${requested}` }

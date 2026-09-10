@@ -137,9 +137,11 @@ function Composer({ disabled, modelName }: { disabled: boolean; modelName: strin
         {modelName && (
           <p className="text-[11px] text-muted">
             Using <span className="text-slate-300">{modelName}</span>.{' '}
-            {mode === 'edit'
-              ? 'Edits go to a copy of the project; you apply them, or not, from the Changes panel.'
-              : 'The model can list, search and read files in the project; it cannot change anything.'}
+            {mode === 'run'
+              ? 'Edits go to a copy; the model can run commands there in a sandbox with no network, and you apply the result, or not.'
+              : mode === 'edit'
+                ? 'Edits go to a copy of the project; you apply them, or not, from the Changes panel.'
+                : 'The model can list, search and read files in the project; it cannot change anything.'}
           </p>
         )}
       </div>
@@ -150,10 +152,12 @@ function Composer({ disabled, modelName }: { disabled: boolean; modelName: strin
 function ModeToggle({ disabled }: { disabled: boolean }): React.JSX.Element {
   const mode = useCodingStore((s) => s.mode)
   const setMode = useCodingStore((s) => s.setMode)
-  const option = (value: 'inspect' | 'edit', label: string): React.JSX.Element => (
+  const sandbox = useCodingStore((s) => s.sandbox)
+  const option = (value: 'inspect' | 'edit' | 'run', label: string, off = false, why = ''): React.JSX.Element => (
     <button
       type="button"
-      disabled={disabled}
+      disabled={disabled || off}
+      title={why}
       onClick={() => setMode(value)}
       className={`rounded px-2 py-0.5 text-[11px] ${
         mode === value ? 'bg-ink text-slate-100' : 'text-muted hover:text-slate-200'
@@ -162,17 +166,25 @@ function ModeToggle({ disabled }: { disabled: boolean }): React.JSX.Element {
       {label}
     </button>
   )
+  // The third mode is offered only where the box exists. Without it the
+  // button says why, and a run is refused by the main process as well.
   return (
     <div className="flex items-center gap-1 rounded border border-edge p-0.5">
       {option('inspect', 'Inspect')}
       {option('edit', 'Edit in a copy')}
+      {option('run', 'Edit and run', sandbox !== null && !sandbox.ok, sandbox?.reason ?? 'Checking whether commands can be contained…')}
     </div>
   )
 }
 
 function ModeBadge(): React.JSX.Element {
   const mode = useCodingStore((s) => s.mode)
-  return mode === 'edit' ? (
+  return mode === 'run' ? (
+    <p className="mt-2 text-[11px] text-muted">
+      <span className="rounded bg-ink px-1.5 py-0.5 text-rose-200">run</span> in a copy, in a sandbox —
+      no network, nothing reaches the project until you apply it
+    </p>
+  ) : mode === 'edit' ? (
     <p className="mt-2 text-[11px] text-muted">
       <span className="rounded bg-ink px-1.5 py-0.5 text-amber-200">edit</span> in a copy — nothing
       reaches the project until you apply it
@@ -244,7 +256,7 @@ function Run({ run }: { run: CodingRunSummary }): React.JSX.Element {
         </div>
       )}
 
-      {run.mode === 'edit' && run.outcome !== 'running' && <Changes run={run} />}
+      {run.mode !== 'inspect' && run.outcome !== 'running' && <Changes run={run} />}
     </div>
   )
 }
@@ -372,12 +384,21 @@ function Line({ event }: { event: JournalEvent }): React.JSX.Element | null {
         </li>
       )
     case 'tool.result':
+      // A command's result is carried by its own command.finished line.
+      if (event.summary.startsWith('$ ')) return null
       return event.denied ? (
         <li className="text-amber-300">refused — {event.summary}</li>
       ) : event.ok ? (
         <li className="pl-4 text-muted">{event.summary}</li>
       ) : (
         <li className="pl-4 text-rose-300">{event.summary}</li>
+      )
+    case 'command.finished':
+      return (
+        <li className={event.timedOut ? 'text-amber-300' : event.exitCode === 0 ? 'text-slate-300' : 'text-rose-300'}>
+          $ {event.command} → {event.timedOut ? 'timed out' : `exit ${event.exitCode ?? '?'}`} · {(event.ms / 1000).toFixed(1)}s
+          {event.truncated && ' · output truncated'}
+        </li>
       )
     case 'run.finished':
       return (

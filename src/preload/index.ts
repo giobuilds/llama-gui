@@ -142,6 +142,8 @@ const api = {
     apply: (runId: string) => invoke<ApplyResult>(IPC.codingApply, runId),
     undo: (runId: string) => invoke<ApplyResult>(IPC.codingUndo, runId),
     discard: (runId: string) => invoke<null>(IPC.codingDiscard, runId),
+    /** Whether commands can be run on this machine, with the reason when not. */
+    sandbox: () => invoke<{ ok: boolean; reason: string | null }>(IPC.codingSandbox),
     onEvent: (cb: (event: JournalEvent) => void) => subscribe<JournalEvent>(IPC.codingEvent, cb),
     onRunsChanged: (cb: (runs: CodingRunSummary[]) => void) =>
       subscribe<CodingRunSummary[]>(IPC.codingRunsChanged, cb)

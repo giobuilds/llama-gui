@@ -17,6 +17,8 @@ interface CodingState {
   events: Record<string, JournalEvent[]>
   task: string
   mode: CodingMode
+  /** Whether "edit and run" can be offered, and why not when it cannot. */
+  sandbox: { ok: boolean; reason: string | null } | null
   /** An edit run's changes, once fetched; the last apply or undo result beside them. */
   changes: Record<string, ChangeSet>
   applyResults: Record<string, ApplyResult>
@@ -44,6 +46,7 @@ export const useCodingStore = create<CodingState>((set, get) => ({
   events: {},
   task: '',
   mode: 'inspect',
+  sandbox: null,
   changes: {},
   applyResults: {},
   busy: {},
@@ -52,6 +55,7 @@ export const useCodingStore = create<CodingState>((set, get) => ({
   async init() {
     const { runs, lastProject } = await window.llama.coding.list()
     set({ runs, project: lastProject })
+    void window.llama.coding.sandbox().then((sandbox) => set({ sandbox }))
     // Reopen the newest run so a reload lands where the user was.
     const newest = runs[runs.length - 1]
     if (newest) await get().open(newest.id)

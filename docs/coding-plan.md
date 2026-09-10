@@ -283,6 +283,30 @@ partial multi-file); zero unwanted changes applied back.
 The first stage that may be described as an autonomous edit-and-test loop, and
 the first that runs repository code.
 
+**Status.** The executor exists: `src/main/coding/sandbox.ts`, bubblewrap
+with the system and the toolchain read-only, the workspace copy read-write,
+the project's `node_modules` lent read-only at the workspace path, a private
+`/tmp`, no network, a pid namespace, `--die-with-parent`, a time limit, an
+output cap, and process-group kill. Measured on this machine, with the real
+test runner as the workload: the home directory is `ENOENT` from inside,
+`127.0.0.1` is refused, a write to `/usr` or the lent dependencies is `EROFS`,
+a write to the workspace is visible outside afterwards, the unit suite passes
+inside, and a command's background children are gone once it ends. A third
+mode, *edit and run*, gives the loop `run_command` — full output kept as an
+artifact beside the journal, the tail shown to the model — and is offered in
+the interface only where the probe passes; the main process refuses it
+otherwise. The probe has still not been run on a clean RPM install.
+
+**Gates.** Recover, on the 9B, three runs each: 3 of 4 tasks by majority
+(7/12 runs), every pass verified by a test run after the edit, unwanted
+changes in 0 of 12. Met. The task that failed all three is the same
+wrong-constant bug that failed the small-fix family; running the tests did
+not help the model see it. Lifecycle — cancel a child process tree, restart
+mid-execution, model disconnect — is covered by the executor's own suite for
+the first, and not yet measured for the other two. The crossover family
+(a task long enough to force compaction) is not yet built. Details in
+[stage0-results.md](stage0-results.md).
+
 - Command execution inside the sandbox only, with explicit cwd, restricted
   environment, time and output caps, and process-tree termination.
 - Install, network and out-of-grant access as **visible grant changes**, not

@@ -214,6 +214,21 @@ against next ("do not answer until you have made the edit"). It is also
 exactly the "falsely completed job" the architecture's lifecycle family
 names: a run that ends `answered` with nothing done.
 
+**The experiment that followed.** Two things were tried against the two 0/3
+tasks, three runs each: a policy sentence — *explaining the bug is not the
+task; changing the code is* — and a one-time reminder turn in the loop for a
+run that tries to answer without having written anything. Result: 1/6,
+against 0/6 before. The reminder never fired once. With the sentence in
+place the model no longer answered in prose; it searched and read for all
+twelve rounds instead, the buggy file open in front of it, and did not
+edit. The sentence changed the failure's shape without producing a fix,
+and the reminder had nothing to remind. Both tasks plant a *wrong constant*
+— `FOLD_AT = 6`, `KEEP_RECENT_TURNS = 1` — and the 9B, reading the line,
+does not see it as wrong. That is a capability limit, not a prompt problem,
+and it is recorded as one. The sentence stays, because a run that searches
+is at least honest about not being done; the reminder was removed as
+untriggered code.
+
 **A false failure, and what it teaches about checks.** `cross-rename-summarise`
 scored 0/3 on the first pass because its absence check searched all of
 `src/` for `summarise(` — and `src/main/coding/supervisor.ts` has an
@@ -221,6 +236,37 @@ unrelated function of that name. Narrowed to where the function lives and
 is called, the same task went 3/3. A mechanical check is only as good as its
 scope, and a check written by the person who also wrote the code will have
 that person's blind spots.
+
+## Recover family
+
+Run once Stage 3's executor existed: the same planted bugs as four of the
+small-fix tasks, but the prompt names only a failing suite — *`node
+tests/run.mjs url` fails. Run it, find the cause, fix it, and run it again* —
+so the model has to run the tests to learn the symptom. Runs are in `run`
+mode: a workspace copy, `run_command` inside bubblewrap with no network, this
+repository's `node_modules` lent read-only. A pass needs the suite green,
+nothing unwanted touched, **and a command run after the last edit** — the
+fix has to have been checked, not just made.
+
+| task | passes | verified | time |
+|---|---|---|---|
+| recover-url | 3/3 | 3/3 | 37–56s |
+| recover-slug | 2/3 | 2/3 | 120–184s |
+| recover-read-window | 2/3 | 2/3 | 38–102s |
+| recover-compact-keep | 0/3 | 0/3 | 91–149s |
+
+**Stage 3 gate: 3 of 4 by majority, 0 unwanted in 12 runs. Met.** Every
+pass was verified; every failure was a run that edited and never ran the
+tests again, or never edited at all. `compact-keep` is the wrong-constant
+bug from the small-fix family, and being able to run the tests did not help
+the 9B see `KEEP_RECENT_TURNS = 1` as the cause.
+
+The first attempt at this family failed every run on the *check*, not the
+model: bubblewrap creates its mount point as a real directory, so each
+command left an empty `node_modules` in the workspace, and the post-run
+check's symlink silently failed on it. The model's own test runs inside the
+box had worked. Another reminder that the harness is code too, and that
+"every run failed" is a reason to check the harness before the model.
 
 ## Addendum: the token counts were incomplete
 
