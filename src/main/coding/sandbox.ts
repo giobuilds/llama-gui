@@ -150,7 +150,7 @@ export async function runInSandbox(cmd: SandboxCommand): Promise<SandboxResult> 
  * read-write, the project's node_modules read only at the workspace path.
  * Nothing else exists inside.
  */
-async function bwrapArgs(workspace: string, projectRoot: string): Promise<string[]> {
+export async function bwrapArgs(workspace: string, projectRoot: string): Promise<string[]> {
   const args = [
     '--ro-bind', '/usr', '/usr',
     '--dev', '/dev',

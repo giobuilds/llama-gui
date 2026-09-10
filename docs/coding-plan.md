@@ -301,10 +301,12 @@ otherwise. The probe has still not been run on a clean RPM install.
 (7/12 runs), every pass verified by a test run after the edit, unwanted
 changes in 0 of 12. Met. The task that failed all three is the same
 wrong-constant bug that failed the small-fix family; running the tests did
-not help the model see it. Lifecycle — cancel a child process tree, restart
-mid-execution, model disconnect — is covered by the executor's own suite for
-the first, and not yet measured for the other two. The crossover family
-(a task long enough to force compaction) is not yet built. Details in
+not help the model see it. Lifecycle — cancel a child process
+tree, restart mid-execution, model disconnect — measured against the real
+app: no orphan in any case, and a run cut off with a command in flight is
+reported as exactly that, the command named and its outcome unknown. Met.
+The crossover family (a task long enough to force compaction) is not yet
+built. Details in
 [stage0-results.md](stage0-results.md).
 
 - Command execution inside the sandbox only, with explicit cwd, restricted

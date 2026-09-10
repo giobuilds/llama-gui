@@ -299,6 +299,12 @@ export function summarise(events: JournalEvent[]): CodingRunSummary | null {
     }
   }
   const rounds = events.filter((e) => e.type === 'model.request').length
+  // A command that was started and never recorded as finished is uncertain:
+  // it may have run to completion, or not at all, and it is never re-run on
+  // the run's behalf. Whatever it did is in the workspace.
+  const lastCommand = [...events].reverse().find((e) => e.type === 'tool.call' && e.name === 'run_command')
+  const commandFinished = lastCommand ? events.some((e) => e.type === 'command.finished' && e.seq > lastCommand.seq) : true
+  const command = !commandFinished && lastCommand?.type === 'tool.call' ? String(lastCommand.args['command'] ?? '') : null
   return {
     id: started.run,
     task: started.task,
@@ -309,7 +315,10 @@ export function summarise(events: JournalEvent[]): CodingRunSummary | null {
     startedAt: started.ts,
     finishedAt: events[events.length - 1]?.ts ?? started.ts,
     outcome: 'error',
-    answer: 'The app closed while this run was in progress. What it had read is in the journal; it produced no answer.',
+    answer:
+      command !== null
+        ? `The app closed while this run was in progress, with a command started and not finished: \`${command}\`. Whether it ran to completion is unknown, and it was not run again. What it had read is in the journal; it produced no answer.`
+        : 'The app closed while this run was in progress. What it had read is in the journal; it produced no answer.',
     rounds,
     denials
   }

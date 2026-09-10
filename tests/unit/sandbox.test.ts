@@ -2,7 +2,8 @@ import assert from 'node:assert/strict'
 import { mkdtemp, mkdir, readFile, writeFile, rm, stat } from 'node:fs/promises'
 import { tmpdir, homedir } from 'node:os'
 import { join } from 'node:path'
-import { probeSandbox, runInSandbox } from '../../src/main/coding/sandbox.js'
+import { probeSandbox, runInSandbox, bwrapArgs } from '../../src/main/coding/sandbox.js'
+import { execFileSync, spawn } from 'node:child_process'
 
 let n = 0; const ok = (m: string) => { n++; console.log('  ok', m) }
 
@@ -61,22 +62,46 @@ console.log('\nlimits hold')
 
   const abort = new AbortController()
   setTimeout(() => abort.abort(), 500)
-  const c = await runInSandbox({ ...opts, command: 'sleep 30', signal: abort.signal })
+  const c = await runInSandbox({ ...opts, command: 'sleep 4747', signal: abort.signal })
   assert.equal(c.cancelled, true); ok('a stop from outside ends it, reported as cancelled')
+  assert.equal(await settled(() => boxed('sleep 4747')), 0); ok('and the command it stopped is gone, not orphaned')
+}
+
+console.log('\nthe app dying takes the box with it')
+{
+  // The shape the app spawns, spawned the way the app spawns it — from a
+  // process that is then killed outright, as a crash or a kill -9 would.
+  const args = await bwrapArgs(workspace, project)
+  const parent = spawn(process.execPath, ['-e', `
+    const { spawn } = require('node:child_process')
+    spawn('bwrap', ${JSON.stringify([...args, '--', 'sh', '-c', 'sleep 4848'])}, { detached: true, stdio: 'ignore' })
+    setInterval(() => {}, 1000)
+  `], { stdio: 'ignore' })
+  assert.equal(await settled(() => boxed('sleep 4848'), (n) => n > 0), 1); ok('a boxed command is running under a parent process')
+  parent.kill('SIGKILL')
+  assert.equal(await settled(() => boxed('sleep 4848')), 0); ok('when the parent is killed outright, the boxed command dies with it')
 }
 
 console.log('\nnothing outlives the run')
 {
   const r = await runInSandbox({ ...opts, command: 'sleep 47 & sleep 47 & echo started; sleep 0.3', timeoutMs: 2000 })
   assert.match(r.stdout, /started/)
-  const { execFileSync } = await import('node:child_process')
-  // The pid namespace tears down when the box exits, but not to the
-  // microsecond; give the kernel a moment before counting.
-  const count = (): string => execFileSync('sh', ['-c', "ps -eo args | grep -c '^[s]leep 47' || true"]).toString().trim()
-  let alive = count()
-  for (let i = 0; i < 20 && alive !== '0'; i++) { await new Promise((r) => setTimeout(r, 100)); alive = count() }
-  assert.equal(alive, '0'); ok('background children started by the command are gone once it ends')
+  assert.equal(await settled(() => boxed('sleep 47')), 0); ok('background children started by the command are gone once it ends')
 }
 
 await rm(base, { recursive: true, force: true })
 console.log(`\n${n} assertions passed`)
+
+/** Processes running `command` inside a pid namespace other than this one's — i.e. inside a box. */
+function boxed(command: string): number {
+  const script = `host=$(readlink /proc/self/ns/pid); n=0
+    for p in $(pgrep -f -x '${command}'); do [ "$(readlink /proc/$p/ns/pid 2>/dev/null)" != "$host" ] && n=$((n+1)); done; echo $n`
+  return Number(execFileSync('sh', ['-c', script]).toString().trim())
+}
+
+/** The pid namespace tears down when the box exits, but not to the microsecond; poll until `done` holds or two seconds pass. */
+async function settled(count: () => number, done: (n: number) => boolean = (n) => n === 0): Promise<number> {
+  let n = count()
+  for (let i = 0; i < 20 && !done(n); i++) { await new Promise((r) => setTimeout(r, 100)); n = count() }
+  return n
+}

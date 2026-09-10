@@ -268,6 +268,33 @@ check's symlink silently failed on it. The model's own test runs inside the
 box had worked. Another reminder that the harness is code too, and that
 "every run failed" is a reason to check the harness before the model.
 
+## Lifecycle
+
+Three interruptions, each driven against the real app over the DevTools
+protocol with the 9B loaded, in `run` mode, with a task that asks the model
+to run `sleep 60` and wait:
+
+| interruption | what happened | recorded as |
+|---|---|---|
+| Stop pressed while the command runs | the box and its sleep are killed within the second; nothing of it remains on the host | `cancelled`, with `command.finished` after 290ms |
+| the model server killed mid-run | the in-flight request fails at once; the server shows `crashed` | `error`, "Stream interrupted: terminated", one second after the kill |
+| the app killed with `kill -9` while the command runs | the box dies with the app (`--die-with-parent`); the boxed sleep is gone before the app's own processes are | on relaunch, `error`, "The app closed while this run was in progress, with a command started and not finished: `sleep 60`. Whether it ran to completion is unknown, and it was not run again." |
+
+**Stage 3 lifecycle gate: no orphan, no falsely completed job. Met.** The
+third case is the one the plan calls *interruption recovery*: the journal
+ends at the `tool.call` with no `command.finished`, and the summary now
+names that command as unfinished rather than describing the run as merely
+cut off. The workspace survives the restart, so whatever the command did is
+still there to look at, apply or discard.
+
+The first measurement said one `sleep 60` had survived the Stop. It was
+another terminal's shell loop, sleeping between polls of a CI run, counted
+by a `ps` pattern that matched it. The count now distinguishes a process by
+its pid namespace — inside a box or not — and the sandbox suite does the
+same. The suite also gained the third case as a repeatable check: a box
+spawned the way the app spawns it, from a process that is then `SIGKILL`ed,
+leaves no command behind.
+
 ## Addendum: the token counts were incomplete
 
 After these runs, building the context engine found that llama.cpp's
