@@ -240,6 +240,30 @@ list, search and read inside one directory.
 
 Adds the write path without adding execution.
 
+**Status.** Shipped in its first form. An edit run gets a copy of the project
+— `git ls-files` when there is a repository, so `.gitignore` is honoured and
+uncommitted work is copied rather than discarded; a walk otherwise — with a
+manifest of content hashes as the baseline. The grant on that copy is in
+`edit` mode; the project itself is never written by the agent. Two tools:
+`edit_file`, which must match exactly once (a uniform indentation offset is
+tolerated, the file's indentation kept), and `write_file`, which creates new
+files freely and overwrites only with the hash the read tool showed. The
+Changes panel lists created, modified and deleted files with unified diffs;
+Apply writes each back only if the project still holds what the baseline
+held, reports anything edited since as a conflict and leaves it alone; Undo
+restores only files still holding what was applied; Discard removes the
+copy. Verified in the running app against a scratch clone, including the
+conflict path. The loop still runs in the main process.
+
+**Gates.** Measured on the 9B, three runs each: small-fix 4 of 6 tasks by
+majority, cross-file 3 of 4, unwanted changes in 0 of 33 write runs. Met.
+The two small-fix tasks that scored 0/3 both show the model reading the
+file with the bug and then answering in prose without editing — a failure
+shape the read-only families did not have, and the next thing to work on.
+Details in [stage0-results.md](stage0-results.md).
+
+Not yet: the C corpus, and command execution, which is Stage 3.
+
 - Isolated task workspace from a **clean baseline**, or dirty state captured
   explicitly. Never discarded silently. One writer per workspace.
 - **Preconditioned patches**: expected hash or exact range; stale patches
