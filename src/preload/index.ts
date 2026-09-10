@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { IPC } from '@shared/ipc.js'
-import type { CodingRunSummary, CodingStartRequest, JournalEvent } from '@shared/coding.js'
+import type { ApplyResult, ChangeSet, CodingRunSummary, CodingStartRequest, JournalEvent } from '@shared/coding.js'
 import type {
   BinaryInfo,
   ConversationSummaryView,
@@ -137,6 +137,11 @@ const api = {
     list: () => invoke<{ runs: CodingRunSummary[]; lastProject: string | null }>(IPC.codingList),
     /** The journal so far, for reconnecting after a reload. */
     get: (runId: string) => invoke<JournalEvent[]>(IPC.codingGet, runId),
+    /** An edit run's changes against its baseline; null for an inspect run. */
+    changes: (runId: string) => invoke<ChangeSet | null>(IPC.codingChanges, runId),
+    apply: (runId: string) => invoke<ApplyResult>(IPC.codingApply, runId),
+    undo: (runId: string) => invoke<ApplyResult>(IPC.codingUndo, runId),
+    discard: (runId: string) => invoke<null>(IPC.codingDiscard, runId),
     onEvent: (cb: (event: JournalEvent) => void) => subscribe<JournalEvent>(IPC.codingEvent, cb),
     onRunsChanged: (cb: (runs: CodingRunSummary[]) => void) =>
       subscribe<CodingRunSummary[]>(IPC.codingRunsChanged, cb)

@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { CodingRunSummary, JournalEvent } from '@shared/coding.js'
+import type { ApplyResult, ChangeSet, CodingMode, CodingRunSummary, JournalEvent } from '@shared/coding.js'
 
 /**
  * A projection of the coding supervisor's state — never a second engine.
@@ -16,9 +16,19 @@ interface CodingState {
   /** Events per run, in sequence order, for the runs that have been opened. */
   events: Record<string, JournalEvent[]>
   task: string
+  mode: CodingMode
+  /** An edit run's changes, once fetched; the last apply or undo result beside them. */
+  changes: Record<string, ChangeSet>
+  applyResults: Record<string, ApplyResult>
+  busy: Record<string, boolean>
   error: string | null
 
   init: () => Promise<void>
+  setMode: (mode: CodingMode) => void
+  loadChanges: (runId: string) => Promise<void>
+  apply: (runId: string) => Promise<void>
+  undo: (runId: string) => Promise<void>
+  discard: (runId: string) => Promise<void>
   pickProject: () => Promise<void>
   setTask: (task: string) => void
   start: () => Promise<void>
@@ -33,6 +43,10 @@ export const useCodingStore = create<CodingState>((set, get) => ({
   activeRunId: null,
   events: {},
   task: '',
+  mode: 'inspect',
+  changes: {},
+  applyResults: {},
+  busy: {},
   error: null,
 
   async init() {
@@ -52,11 +66,53 @@ export const useCodingStore = create<CodingState>((set, get) => ({
     set({ task })
   },
 
+  setMode(mode) {
+    set({ mode })
+  },
+
+  async loadChanges(runId) {
+    const changes = await window.llama.coding.changes(runId)
+    if (changes) set({ changes: { ...get().changes, [runId]: changes } })
+  },
+
+  async apply(runId) {
+    set({ busy: { ...get().busy, [runId]: true }, error: null })
+    try {
+      const result = await window.llama.coding.apply(runId)
+      set({ applyResults: { ...get().applyResults, [runId]: result } })
+      await get().loadChanges(runId)
+    } catch (err) {
+      set({ error: (err as Error).message })
+    } finally {
+      const { [runId]: _done, ...rest } = get().busy
+      set({ busy: rest })
+    }
+  },
+
+  async undo(runId) {
+    set({ busy: { ...get().busy, [runId]: true }, error: null })
+    try {
+      const result = await window.llama.coding.undo(runId)
+      set({ applyResults: { ...get().applyResults, [runId]: result } })
+    } catch (err) {
+      set({ error: (err as Error).message })
+    } finally {
+      const { [runId]: _done, ...rest } = get().busy
+      set({ busy: rest })
+    }
+  },
+
+  async discard(runId) {
+    await window.llama.coding.discard(runId)
+    const { [runId]: _gone, ...changes } = get().changes
+    set({ changes })
+  },
+
   async start() {
     const { project, task } = get()
     if (!project || !task.trim()) return
     try {
-      const run = await window.llama.coding.start({ projectRoot: project, task: task.trim() })
+      const run = await window.llama.coding.start({ projectRoot: project, task: task.trim(), mode: get().mode })
       set({
         runs: [...get().runs, run],
         activeRunId: run.id,

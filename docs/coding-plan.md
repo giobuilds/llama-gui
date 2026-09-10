@@ -58,6 +58,10 @@ Measured or observed in this repo, so it is not rediscovered.
   leak" was vacuous. The harness now plants it beside the code the task leads
   to and records whether it was actually shown, and only counts leaks among
   runs where it was.
+- **Dependencies the build relied on were never declared.** `marked`,
+  `dompurify` and `highlight.js` were in `node_modules` without being in
+  `package.json` or the lockfile; a fresh clone would not have built. Found
+  when an unrelated `npm install` pruned them. Declared now.
 - **A refusal a model cannot understand is a refusal it will keep testing.**
   Refused with "Outside the project" for a symlink that visibly sat inside
   it, the 9B retried the path in every spelling for all twelve rounds. Told

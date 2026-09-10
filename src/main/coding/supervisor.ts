@@ -7,6 +7,8 @@ import { Grant } from '../../agent/grant.js'
 import { runTask } from '../../agent/loop.js'
 import type { ServerSupervisor } from '../supervisor.js'
 import { Journal } from './journal.js'
+import { Workspace } from './workspace.js'
+import type { ApplyResult, ChangeSet } from '@shared/coding.js'
 
 /**
  * Owns coding runs the way the llama.cpp supervisor owns model processes.
@@ -29,6 +31,7 @@ export class CodingSupervisor extends EventEmitter<{
 }> {
   private readonly runs = new Map<string, CodingRunSummary>()
   private readonly live = new Map<string, { abort: AbortController; journal: Journal }>()
+  private readonly workspaces = new Map<string, Workspace>()
 
   constructor(
     private readonly dir: string,
@@ -64,11 +67,18 @@ export class CodingSupervisor extends EventEmitter<{
     if (!server || !status || status.phase !== 'ready' || !status.port) {
       throw new Error('Start a model on the Server tab first: a coding run needs one loaded.')
     }
-    // Grant.open resolves the root and throws if it does not exist, which is
-    // the right time to find out — not on the first tool call.
-    const grant = await Grant.open(req.projectRoot)
-
     const id = randomUUID()
+    // Grant.open resolves the root and throws if it does not exist, which is
+    // the right time to find out — not on the first tool call. An edit run's
+    // grant is on a copy of the project, never the project.
+    let grant: Grant
+    if (req.mode === 'edit') {
+      const workspace = await Workspace.create((await Grant.open(req.projectRoot)).root, this.workspaceDir(id))
+      this.workspaces.set(id, workspace)
+      grant = await Grant.open(workspace.root, 'edit')
+    } else {
+      grant = await Grant.open(req.projectRoot)
+    }
     const model = status.config?.modelPath?.split('/').pop() ?? 'unknown model'
     const journal = new Journal(this.file(id))
     const abort = new AbortController()
@@ -77,7 +87,9 @@ export class CodingSupervisor extends EventEmitter<{
     const summary: CodingRunSummary = {
       id,
       task: req.task,
-      projectRoot: grant.root,
+      projectRoot: req.mode === 'edit' ? (await Grant.open(req.projectRoot)).root : grant.root,
+      mode: req.mode,
+      appliedAt: null,
       model,
       startedAt: Date.now(),
       finishedAt: null,
@@ -90,7 +102,7 @@ export class CodingSupervisor extends EventEmitter<{
     this.emit('runs', this.list())
 
     // Not awaited: the caller gets the summary at once and follows events.
-    void this.drive(id, summary, grant, journal, abort, `http://127.0.0.1:${status.port}`, req.task, status.contextPerSlot)
+    void this.drive(id, summary, grant, journal, abort, `http://127.0.0.1:${status.port}`, req.task, status.contextPerSlot, req.mode)
     return summary
   }
 
@@ -114,7 +126,8 @@ export class CodingSupervisor extends EventEmitter<{
     abort: AbortController,
     baseUrl: string,
     task: string,
-    contextLimit: number | null
+    contextLimit: number | null,
+    mode: CodingRunSummary['mode']
   ): Promise<void> {
     try {
       const result = await runTask({
@@ -128,6 +141,7 @@ export class CodingSupervisor extends EventEmitter<{
         signal: abort.signal,
         runId: id,
         contextLimit,
+        mode,
         onEvent: (event) => {
           // Journal first. The renderer is a view of the record, not the
           // other way round.
@@ -154,6 +168,62 @@ export class CodingSupervisor extends EventEmitter<{
     }
   }
 
+  /** The run's changes against the baseline its workspace was taken from. */
+  async changes(id: string): Promise<ChangeSet | null> {
+    const ws = await this.workspace(id)
+    return ws ? ws.changes() : null
+  }
+
+  async apply(id: string): Promise<ApplyResult> {
+    const ws = await this.workspace(id)
+    if (!ws) throw new Error('This run has no workspace to apply.')
+    if (this.live.has(id)) throw new Error('Wait for the run to finish, or stop it, before applying.')
+    const result = await ws.apply()
+    const summary = this.runs.get(id)
+    if (summary && result.applied.length) {
+      summary.appliedAt = Date.now()
+      this.emit('runs', this.list())
+    }
+    return result
+  }
+
+  async undo(id: string): Promise<ApplyResult> {
+    const ws = await this.workspace(id)
+    if (!ws) throw new Error('This run has no workspace.')
+    const result = await ws.undo()
+    const summary = this.runs.get(id)
+    if (summary && result.conflicts.length === 0) {
+      summary.appliedAt = null
+      this.emit('runs', this.list())
+    }
+    return result
+  }
+
+  async discard(id: string): Promise<void> {
+    const ws = await this.workspace(id)
+    if (!ws) return
+    if (this.live.has(id)) this.cancel(id)
+    await ws.discard()
+    this.workspaces.delete(id)
+  }
+
+  private async workspace(id: string): Promise<Workspace | null> {
+    const held = this.workspaces.get(id)
+    if (held) return held
+    try {
+      const ws = await Workspace.open(this.workspaceDir(id))
+      this.workspaces.set(id, ws)
+      return ws
+    } catch {
+      return null
+    }
+  }
+
+  private workspaceDir(id: string): string {
+    if (!/^[a-f0-9-]{36}$/i.test(id)) throw new Error('invalid run id')
+    return join(this.dir, 'workspaces', id)
+  }
+
   private file(id: string): string {
     // ids are our own UUIDs, but they cross IPC on the way back in.
     if (!/^[a-f0-9-]{36}$/i.test(id)) throw new Error('invalid run id')
@@ -171,11 +241,14 @@ export function summarise(events: JournalEvent[]): CodingRunSummary | null {
   if (!started || started.type !== 'run.started') return null
   const finished = events.find((e) => e.type === 'run.finished')
   const denials = events.filter((e) => e.type === 'tool.result' && e.denied).length
+  const mode = started.mode ?? 'inspect'
   if (finished && finished.type === 'run.finished') {
     return {
       id: started.run,
       task: started.task,
       projectRoot: started.grantRoot,
+      mode,
+      appliedAt: null,
       model: started.model,
       startedAt: started.ts,
       finishedAt: finished.ts,
@@ -190,6 +263,8 @@ export function summarise(events: JournalEvent[]): CodingRunSummary | null {
     id: started.run,
     task: started.task,
     projectRoot: started.grantRoot,
+    mode,
+    appliedAt: null,
     model: started.model,
     startedAt: started.ts,
     finishedAt: events[events.length - 1]?.ts ?? started.ts,
