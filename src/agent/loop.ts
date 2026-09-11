@@ -328,7 +328,7 @@ const RUN_COMMAND_TOOL: ToolDefinition = {
   description:
     'Run a shell command in the project copy, inside a sandbox: no network, a ' +
     'time limit, output truncated to its tail. Use it to run the tests, e.g. ' +
-    '`node tests/run.mjs` or `npm test`. The exit code is reported.',
+    '`node tests/run.mjs` or `npm test`. The exit code is reported; in a pipeline it is the first failing command\'s.',
   parameters: {
     type: 'object',
     properties: {

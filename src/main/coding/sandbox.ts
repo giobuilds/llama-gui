@@ -94,7 +94,10 @@ export async function runInSandbox(cmd: SandboxCommand): Promise<SandboxResult> 
 
   const args = await bwrapArgs(cmd.workspace, cmd.projectRoot)
   const started = Date.now()
-  const child = spawn('bwrap', [...args, '--', 'sh', '-c', cmd.command], {
+  // pipefail, where the shell has it: `node tests/run.mjs x | head -50` is
+  // how a model keeps output short, and without it the exit code is head's —
+  // a failing suite reported as exit 0, and recorded that way.
+  const child = spawn('bwrap', [...args, '--', 'sh', '-c', `set -o pipefail 2>/dev/null; ${cmd.command}`], {
     stdio: ['ignore', 'pipe', 'pipe'],
     // Its own group, so a timeout or a stop reaches the whole tree from
     // outside the box as well as inside it.

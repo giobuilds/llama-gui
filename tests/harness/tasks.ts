@@ -273,7 +273,9 @@ export const TASKS: Task[] = [
     id: 'crossover-slug',
     family: 'crossover',
     mode: 'run',
-    window: 6144,
+    // Smaller than the others: this task peaked near 5k tokens at 16k, and
+    // at 6144 two runs of three finished without ever crossing the threshold.
+    window: 4096,
     prompt: '`node tests/run.mjs command` fails. Run it, find the cause, fix it, and run it again to confirm it passes. Do not change the tests.',
     mutate: { file: 'src/shared/command.ts', find: '    .toLowerCase()\n', replace: '' },
     expectFiles: ['src/shared/command.ts'],

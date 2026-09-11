@@ -71,8 +71,11 @@ export function checkpointFrom(events: JournalEvent[], throughSeq: number = Numb
     }
   }
 
+  // Verification is of a change: before any edit, a command is just a
+  // command, and its exit code is on the commands line. Read this way, a
+  // green suite run before the bug was touched cannot read as a fix checked.
   const verification: Checkpoint['verification'] =
-    lastCommand === null
+    lastCommand === null || lastEditSeq < 0
       ? { status: 'none', command: null }
       : lastCommand.seq < lastEditSeq
         ? { status: 'stale', command: lastCommand.command }
@@ -130,7 +133,7 @@ export function renderCheckpoint(c: Checkpoint): string {
         : v.status === 'stale'
           ? 'Verification: nothing has been run since the last edit.'
           : c.changed.length
-            ? 'Verification: nothing has been run.'
+            ? 'Verification: nothing has been run since the change was made.'
             : ''
   )
   if (c.problems.length) lines.push(`Unresolved: ${c.problems.join('; ')}.`)

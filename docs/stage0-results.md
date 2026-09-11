@@ -306,6 +306,29 @@ on any round after the first. Task outcomes, timings, exposure and leaks are
 unaffected. The harness now records `cacheTokens` per round, and later
 measurements report occupancy.
 
+## Addendum: this document was in the corpus
+
+The first crossover run searched the project for "slug" and its first hit
+was line 176 of this file — the sentence describing the planted bug it was
+sent to find. The harness had excluded its own task file and the plan, and
+not the results, which name every planted bug in the write and recover
+tables above. Excluded now; the exposure in the earlier matrices, from the
+journals:
+
+| matrix | run | what it saw | scored |
+|---|---|---|---|
+| small-fix (Stage 2) | fix-grant-node-modules #1, #2 | a search hit on a sentence about the harness, not the bug | pass, pass |
+| nudge experiment | fix-fold-threshold #1 | **read this file from line 165, where the planted constants are listed** | pass |
+| recover (Stage 3) | recover-url #1, #3 | a search hit quoting "`javascript:` accepted by `isWebUrl`" | pass, pass |
+| recover (Stage 3) | recover-slug #3 | a search hit quoting "`slug()` no longer lower-casing" | pass |
+
+The two Stage 2 exposures were to nothing useful and the gate stands. The
+nudge experiment's one pass was the run that read the answer, so that
+experiment's result is 0 of 6 rather than 1 of 6 — which strengthens its
+conclusion. The Stage 3 recover gate is the one affected: three of its
+seven passes had seen the bug named before finding it. `recover-url` and
+`recover-slug` are re-run below with the file excluded.
+
 ## What it means for the plan
 
 **The middle model is the target, and it is the 9B.** Ornith-1.5-9B passed
