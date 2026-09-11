@@ -485,8 +485,38 @@ and every changed-files slot matched, on a different model's output.
 Since the expert offload rather than the size is what broke it, the fair
 version of the question needs a *dense* model that fits on the card
 whole. Qwen3.8-27B at a one-bit quant is 5.8 GB and runs entirely on the
-GPU; it is in the harness now as `qwen38-27b`, and the trade it makes is
-quantisation instead of latency.
+GPU, trading quantisation for latency instead. It ran the same twelve at
+a median of 38 seconds — faster than the 9B — and passed **none of
+them, never editing once**.
+
+It is not slow and it is not confused about the task; it is broken in
+the format. It calls tools in most rounds (38 of 49 responses), reads
+files, runs commands, and then stops early and answers in prose: the
+median run is 4 rounds against the 9B's 16. Twice it wrote a tool call
+*as text* in its answer — `Let me look at the relevant files… <function_calls>
+<parameter=run_c…` — and once it replied with a bare closing think tag
+and nothing else. That is one-bit quantisation, not scale.
+
+| | 9B Q4_K_M | 30B MoE TQ1_0, experts on CPU | 27B dense IQ1_S |
+|---|---|---|---|
+| passed | 4/12 | 1/12 | 0/12 |
+| never edited | 5/12 | 11/12 | 12/12 |
+| hit the time budget | 0/12 | 8/12 | 0/12 |
+| median run | 79s | 360s | 38s |
+
+**On an 8 GB card a larger model is either too slow or too damaged, and
+the 9B is not a compromise but the only member of its class that
+works.** Stage 0 concluded that from the read-only families; this is the
+same finding under a harder task with a smaller window, and it closes
+the question of whether the crossover results are an artefact of picking
+a mid-sized model.
+
+The record held on all three. Across the 30B's and the 27B's 24 runs
+compaction fired in fifteen, every checkpoint claim was supported by the
+journal, and every changed-files slot matched the diff — including in
+runs where the model itself was emitting malformed output. The
+projection is the journal's, not the model's, and that is exactly what
+it was built to be.
 
 What a compaction looks like from inside a run: the rename task at round
 2 held 4,410 tokens with two reads of `compact.ts` in the window; the

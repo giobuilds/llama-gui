@@ -325,9 +325,14 @@ change touches — which leaves seven or eight informative runs per matrix,
 too few to resolve a change worth one or two of them. **The family is a
 sound regression check and too small an experiment.** Further tuning of
 the context engine needs many more runs per matrix, or tasks that do not
-fail for reasons the engine cannot reach. Remaining: the same family on
-a larger model, and a read window that scales with the context a run has
-— which needs tasks that do not plant their bug in the read window. The results document was found in the corpus during this
+fail for reasons the engine cannot reach. The same family on a larger model is now run and answers a
+different question than it was asked: on this card a larger model is
+either too slow (the 30B MoE pages experts from CPU — eight of twelve
+runs killed at the time budget) or too damaged (the dense 27B fits only
+at one bit, and writes tool calls as prose — 0 of 12, never edited). The
+9B is not a compromise, it is the only member of its class that works
+here. Remaining: a read window that scales with the context a run has —
+which needs tasks that do not plant their bug in the read window. The results document was found in the corpus during this
 work and is excluded now; the recover tasks it could have helped were
 re-run clean, 6 of 6. Details in [stage0-results.md](stage0-results.md).
 
