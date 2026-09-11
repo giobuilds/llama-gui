@@ -290,7 +290,9 @@ async function runOnce(model: string, task: Task, run: number, repo: string, out
     let checkFailures: string[] = []
     if (ws) {
       changed = (await ws.changes()).files.map((f) => f.path)
-      unwanted = changed.filter((p) => !(task.expectFiles ?? []).includes(p))
+      // tsc writes its incremental state beside the config it was given; a
+      // run told to typecheck leaves one behind. That is tsc's, not the model's.
+      unwanted = changed.filter((p) => !(task.expectFiles ?? []).includes(p) && !p.endsWith('.tsbuildinfo'))
       checkFailures = await runChecks(ws.root, repo, task)
     }
     const writeTask = task.mode === 'edit' || task.mode === 'run'
