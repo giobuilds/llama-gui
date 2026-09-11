@@ -80,6 +80,20 @@ export interface RunResult {
   compactions: number
 }
 
+/**
+ * The prose a model writes beside its tool calls, bounded to the end of it:
+ * what it is about to do is said last, after whatever recap came first.
+ */
+const SAY_CHARS = 300
+function saidInPassing(content: string): string | null {
+  const text = content.trim()
+  if (!text) return null
+  if (text.length <= SAY_CHARS) return text
+  const tail = text.slice(-SAY_CHARS)
+  const start = tail.search(/[A-Z]/)
+  return start > 0 ? tail.slice(start) : tail
+}
+
 /** How llama.cpp declines a request larger than the slot's window. */
 const OVERFLOW = /exceed(s|_)?.{0,20}context size/i
 
@@ -257,10 +271,12 @@ export async function runTask(req: RunRequest): Promise<RunResult> {
       occupancy = windowUsed(usage)
       appendedChars = 0
     }
+    const said = saidInPassing(content)
     emit({
       type: 'model.response',
       round: rounds,
       contentChars: content.length,
+      ...(said ? { say: said } : {}),
       reasoningChars,
       toolCalls: calls.length,
       usage,

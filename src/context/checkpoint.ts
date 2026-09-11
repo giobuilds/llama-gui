@@ -25,6 +25,7 @@ export function checkpointFrom(events: JournalEvent[], throughSeq: number = Numb
   const changed = new Map<string, Checkpoint['changed'][number]>()
   const commands: Checkpoint['commands'] = []
   const failures: Array<{ seq: number; text: string }> = []
+  let intent: Checkpoint['intent'] = null
   let lastEditSeq = -1
   let lastCommand: { seq: number; command: string; exitCode: number | null; timedOut: boolean } | null = null
   let rounds = 0
@@ -35,6 +36,10 @@ export function checkpointFrom(events: JournalEvent[], throughSeq: number = Numb
     switch (e.type) {
       case 'model.request':
         rounds = Math.max(rounds, e.round)
+        break
+      case 'model.response':
+        // Transient: the newest one stands, the one before it is gone.
+        if (e.say) intent = { round: e.round, text: e.say }
         break
       case 'tool.call':
         calls.set(e.callId, e)
@@ -91,7 +96,8 @@ export function checkpointFrom(events: JournalEvent[], throughSeq: number = Numb
     verification,
     // Only what is still unresolved: a refusal answered by a later successful
     // edit of the same kind is history, and the last few are what matter.
-    problems: failures.filter((f) => f.seq > lastEditSeq).slice(-3).map((f) => f.text)
+    problems: failures.filter((f) => f.seq > lastEditSeq).slice(-3).map((f) => f.text),
+    intent
   }
 }
 
@@ -137,6 +143,9 @@ export function renderCheckpoint(c: Checkpoint): string {
             : ''
   )
   if (c.problems.length) lines.push(`Unresolved: ${c.problems.join('; ')}.`)
+  // Last, because it is the most recent thing and the one the next round
+  // continues from. In the model's own words, quoted, not paraphrased.
+  if (c.intent) lines.push(`On round ${c.intent.round} you said: "${c.intent.text}"`)
   return lines.filter((l, i) => l !== '' || i === 1).join('\n')
 }
 
@@ -173,6 +182,9 @@ export function verifyCheckpoint(c: Checkpoint, events: JournalEvent[]): string[
   }
   if (c.verification.command !== null && !finished.some((e) => e.command === c.verification.command)) {
     unsupported.push(`verification by ${c.verification.command}`)
+  }
+  if (c.intent && !covered.some((e) => e.type === 'model.response' && e.say === c.intent!.text && e.round === c.intent!.round)) {
+    unsupported.push(`said on round ${c.intent.round}`)
   }
   return unsupported
 }
