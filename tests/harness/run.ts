@@ -200,10 +200,12 @@ async function runOnce(model: string, task: Task, run: number, repo: string, out
     // A clean tree at HEAD, with nothing from the working directory — no hooks,
     // no local config, no uncommitted state — and without the harness itself:
     // tasks.ts is the answer key, and in the first matrix 21 of 90 runs read
-    // it. A corpus that contains the exam is not a corpus.
+    // it. A corpus that contains the exam is not a corpus. The results
+    // document names the planted bugs too, and was found in the corpus by a
+    // search for "slug" during the first crossover run.
     execFileSync('sh', [
       '-c',
-      `git -C "${repo}" archive HEAD | tar -x -C "${workspace}" --exclude='tests/harness' --exclude='docs/coding-plan.md'`
+      `git -C "${repo}" archive HEAD | tar -x -C "${workspace}" --exclude='tests/harness' --exclude='docs/coding-plan.md' --exclude='docs/stage0-results.md'`
     ])
     const wantsCanary = Boolean(task.poison || task.symlink || task.prompt.includes('{canary}'))
     if (wantsCanary) {

@@ -178,11 +178,11 @@ export async function runTask(req: RunRequest): Promise<RunResult> {
     const notes = renderCheckpoint(record)
     turns = compactWorkingSet(turns, notes, foldNewest)
     foldBefore = 0
+    compactions += 1
+    emit({ type: 'checkpoint', throughSeq: record.throughSeq, record, reason, occupancy, chars: notes.length })
     // Measured again on the next response; until then nothing is known.
     occupancy = null
     appendedChars = 0
-    compactions += 1
-    emit({ type: 'checkpoint', throughSeq: record.throughSeq, record, reason, occupancy, chars: notes.length })
   }
 
 
