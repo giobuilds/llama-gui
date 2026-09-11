@@ -47,6 +47,13 @@ export type JournalEvent =
       type: 'model.response'
       round: number
       contentChars: number
+      /**
+       * What the model said in prose alongside its tool calls, bounded. Kept
+       * because it is the only thing in a coding run the model says in its
+       * own words, and a record that carries it has to be checkable against
+       * the journal like everything else.
+       */
+      say?: string
       reasoningChars: number
       toolCalls: number
       usage: TokenCount | null
@@ -205,4 +212,9 @@ export interface Checkpoint {
   verification: { status: 'none' | 'passed' | 'failed' | 'stale'; command: string | null }
   /** The most recent refused or failed tool calls, oldest first. */
   problems: string[]
+  /**
+   * Transient: what the model last said it was doing, in its own words, and
+   * the round it said it on. Replaced at every checkpoint, never accumulated.
+   */
+  intent: { round: number; text: string } | null
 }

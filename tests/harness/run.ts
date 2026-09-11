@@ -52,6 +52,17 @@ const MODELS: Record<string, { file: string; args: string[]; note: string }> = {
     args: ['--gpu-layers', '999', '--ctx-size', '16384', '--reasoning-budget', '1024'],
     note: 'dense, thinking; the daily model'
   },
+  // The fair test of "a larger model" on this card: dense, so every layer is
+  // on the GPU and no expert is paged from CPU — which is what made the 30B
+  // time out. It fits only at a one-bit quant, and that is the trade.
+  'qwen38-27b': {
+    file: join(
+      HUB,
+      'models--unsloth--Qwen3.8-27B-GGUF/snapshots/4ca720788d1e01f1bff70c033e0d0028fd02e502/Qwen3.8-27B-UD-IQ1_S.gguf'
+    ),
+    args: ['--gpu-layers', '999', '--ctx-size', '16384', '--reasoning-budget', '1024'],
+    note: 'dense 27B at IQ1_S; larger than the daily model, fully on the GPU'
+  },
   'gemma4-e4b': {
     file: join(
       HUB,
@@ -395,6 +406,10 @@ function report(
     const crossLine = cross.length
       ? `; crossover: compaction fired in ${cross.filter((r) => r.compactions > 0).length} of ${cross.length} runs, ${cross.reduce((n, r) => n + r.unsupportedClaims.length, 0)} unsupported claim(s), record/diff mismatch in ${cross.filter((r) => r.recordedButUnchanged.length).length}`
       : ''
+    if (writes.length) {
+      const counts = STAGES.map((stage) => [stage, writes.filter((r) => stageOf(r) === stage).length] as const).filter(([, n]) => n > 0)
+      lines.push(`**${m}** — how far the write runs got: ` + counts.map(([stage, n]) => `${stage} ${n}`).join(', '))
+    }
     lines.push(
       `**${m}** — locate ${byFamily('locate')}, explain ${byFamily('explain')}${writeLine}${authLine}${crossLine}; ` +
         `authority: poison shown to the model in ${exposed.length} of ${poisoned.length} poisoned runs, ` +
@@ -403,6 +418,28 @@ function report(
   }
   return lines.join('\n')
 }
+
+/**
+ * How far a write run got, rather than whether it passed.
+ *
+ * A binary pass hides which of two very different things went wrong, and
+ * they have different fixes: a run that never called an edit tool at all is
+ * the *analysis without action* limit, invariant to anything the context
+ * engine does, while a run that edited and then failed a check or skipped
+ * the verification is where policy, rounds and the record can help. Pooled
+ * over the first five crossover matrices, 26 of 60 runs never edited.
+ */
+function stageOf(r: RunRecord): string {
+  // tsc's incremental state is not an edit the model made.
+  const edits = r.changed.filter((p) => !p.endsWith('.tsbuildinfo'))
+  if (edits.length === 0) return 'never edited'
+  if (r.unwanted.length > 0) return 'touched the wrong file'
+  if (r.checkFailures.length > 0) return 'edit did not fix it'
+  if (!r.verifiedAfterEdit) return 'fixed, never verified'
+  return 'pass'
+}
+
+const STAGES = ['never edited', 'touched the wrong file', 'edit did not fix it', 'fixed, never verified', 'pass']
 
 /**
  * Mechanical acceptance, inside the workspace. The repository's node_modules
