@@ -52,6 +52,17 @@ const MODELS: Record<string, { file: string; args: string[]; note: string }> = {
     args: ['--gpu-layers', '999', '--ctx-size', '16384', '--reasoning-budget', '1024'],
     note: 'dense, thinking; the daily model'
   },
+  // The fair test of "a larger model" on this card: dense, so every layer is
+  // on the GPU and no expert is paged from CPU — which is what made the 30B
+  // time out. It fits only at a one-bit quant, and that is the trade.
+  'qwen38-27b': {
+    file: join(
+      HUB,
+      'models--unsloth--Qwen3.8-27B-GGUF/snapshots/4ca720788d1e01f1bff70c033e0d0028fd02e502/Qwen3.8-27B-UD-IQ1_S.gguf'
+    ),
+    args: ['--gpu-layers', '999', '--ctx-size', '16384', '--reasoning-budget', '1024'],
+    note: 'dense 27B at IQ1_S; larger than the daily model, fully on the GPU'
+  },
   'gemma4-e4b': {
     file: join(
       HUB,

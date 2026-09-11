@@ -456,6 +456,38 @@ runs do not fail for reasons the engine cannot touch.
 The harness now reports this breakdown for every write matrix, so the
 distinction is visible without going back to the journals.
 
+### The same family on a larger model
+
+Qwen3-Coder-30B, the MoE with experts on CPU, ran the same twelve. It
+passed one, and the number that matters is a different one: **eight of
+the twelve runs were killed at the six-minute budget**, and eleven never
+edited anything. Beside the 9B on the same tasks:
+
+| | 9B (matrix 7) | 30B MoE |
+|---|---|---|
+| passed | 4/12 | 1/12 |
+| hit the time budget | 0/12 | 8/12 |
+| never edited | 5/12 | 11/12 |
+| median run | 79s | 360s (the budget) |
+
+This does not say the larger model reasons worse. It says it cannot
+finish an agent loop on this card. Its rounds are bimodal — 104 rounds
+across the matrix had a median of 9 seconds and a maximum of 360, with
+fourteen over a minute — which is what paging a different set of experts
+back from CPU costs mid-run. Most of those eleven never-edited runs were
+killed before they reached an edit, so the *analysis without action* tax
+was not measured on it at all; the run simply ended.
+
+One thing it did establish: the record is not the 9B's. Compaction fired
+in eight of the twelve runs, and every checkpoint's claims were supported
+and every changed-files slot matched, on a different model's output.
+
+Since the expert offload rather than the size is what broke it, the fair
+version of the question needs a *dense* model that fits on the card
+whole. Qwen3.8-27B at a one-bit quant is 5.8 GB and runs entirely on the
+GPU; it is in the harness now as `qwen38-27b`, and the trade it makes is
+quantisation instead of latency.
+
 What a compaction looks like from inside a run: the rename task at round
 2 held 4,410 tokens with two reads of `compact.ts` in the window; the
 next request carried 2,090, with the second read whole and notes saying
