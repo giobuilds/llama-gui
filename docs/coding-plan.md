@@ -306,12 +306,18 @@ tree, restart mid-execution, model disconnect — measured against the real
 app: no orphan in any case, and a run cut off with a command in flight is
 reported as exactly that, the command named and its outcome unknown. Met.
 The crossover family — the write tasks in a window a third of the size,
-continued from notes projected out of the journal — 3 of 4 by majority,
-compaction in 10 of 12 runs, every checkpoint claim supported and every
-changed-files slot matching the diff. Met. The results document was
-found in the corpus during this work and is excluded now; the recover
-tasks it could have helped were re-run clean, 6 of 6. Details in
-[stage0-results.md](stage0-results.md).
+continued from notes projected out of the journal — over four matrices:
+the record held in 48 of 48 runs (every checkpoint claim supported, every
+changed-files slot matching the diff), and task completion ranged from 0
+to 6 of 12, two of four tasks by majority over the pooled runs. **Met on
+the record, not on completion.** The spread is the 9B's own — runs that
+reason longest edit least — and the one task that fails outright fails
+before compaction, in what folding hides. Next experiments, in order:
+fold less in a small window (keep two rounds whole, not one); a
+model-extracted *next action* slot in the notes; the same family on a
+larger model. The results document was found in the corpus during this
+work and is excluded now; the recover tasks it could have helped were
+re-run clean, 6 of 6. Details in [stage0-results.md](stage0-results.md).
 
 - Command execution inside the sandbox only, with explicit cwd, restricted
   environment, time and output caps, and process-tree termination.

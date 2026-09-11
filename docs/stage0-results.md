@@ -322,23 +322,49 @@ compacted tested nothing), every claim in every checkpoint supported by
 the journal, and the last checkpoint's changed files present in the
 workspace diff.
 
-Two matrices. The first found three things in the harness and the
-projection; the second is the measurement.
+Four matrices of twelve runs, each changing one thing, reported together
+because the spread between them is the finding.
 
-| task | window | passes | compacted | verified | time |
+| matrix | change | passes | by majority | compacted | record held |
 |---|---|---|---|---|---|
-| crossover-slug | 4,096 | 2/3 | 3/3 | 2/3 | 67–134s |
-| crossover-read-window | 6,144 | 0/3 | 1/3 | 0/3 | 35–52s |
-| crossover-rename-summarise | 6,144 | 2/3 | 3/3 | 3/3 | 48–65s |
-| crossover-new-ipc-channel | 6,144 | 2/3 | 3/3 | 2/3 | 56–75s |
+| 1 | as first built | 2/12 (3 with the corrections below) | 1 of 4 | 9/12 | 12/12 |
+| 2 | verification only of a change; pipefail; tsbuildinfo not unwanted; slug at 4,096 | 6/12 | 3 of 4 | 10/12 | 12/12 |
+| 3 | search takes a file (see below) | 0/12 | 0 of 4 | 11/12 | 12/12 |
+| 4 | a compaction gives back two rounds, four at most | 6/12 | 2 of 4 | 12/12 | 12/12 |
 
-**Stage 3 crossover gate: 3 of 4 tasks by majority, compaction fired in 10
-of 12 runs, 0 unsupported claims, 0 record/diff mismatches, 0 unwanted
-changes. Met.** For comparison the same tasks at the full window scored
-2/3, 2/3, 3/3 and 1/3 in their own families, so a window a third of the
-size costs about one run in twelve — and the IPC task, the hardest, did
-better here than at 16k, on runs that took under half the time. A smaller
-working set is not only a cost.
+Per task over matrices 2–4, nine runs each, beside the same task at the
+full window in its own family:
+
+| task | window | crossover passes | at 16k | verified when passed |
+|---|---|---|---|---|
+| crossover-slug | 4,096 | 3/9 | 5/6 | 3/3 |
+| crossover-read-window | 6,144 | 0/9 | 2/3 | — |
+| crossover-rename-summarise | 6,144 | 7/9 | 3/3 | 7/7 |
+| crossover-new-ipc-channel | 6,144 | 4/9 | 1/3 | 4/4 |
+
+**Stage 3 crossover gate: not met on task completion; met on the record.**
+The record's part held in every one of 48 runs: compaction fired in 42,
+every claim in every checkpoint was supported by the journal up to its
+sequence, the changed-files slot matched the workspace diff at the end
+each time, and nothing unwanted was touched. Task completion in a window
+a third of the size ranged from 0 to 6 of 12 across matrices of the same
+code, with two of four tasks passing by majority over the pooled runs
+(rename 7 of 9; the IPC task, 4 of 9, did better than its own family at
+16k). The spread between matrices 2 and 3 — six passes to none, the
+search fix the only change between them — is larger than any single
+change made here and is the 9B's own: the failing runs reason two to
+three times as long per round and read the same short file repeatedly
+without editing it. That is the *analysis without action* shape from the
+small-fix family, more frequent in a small window.
+
+Where the window does cost: `read-window` failed all twelve runs where
+it had passed two of three at 16k. Its failures mostly come *before*
+compaction — folding at 60% of a small window hides the test file the
+model was reasoning from, and it then searches for assertion text
+instead of opening the implementation. And the round limit: in matrix 3
+two runs had made the whole change and were cut off before verifying it,
+which is what the fourth matrix's change addresses — three of its six
+passes finished past twelve rounds.
 
 What a compaction looks like from inside a run: the rename task at round
 2 held 4,410 tokens with two reads of `compact.ts` in the window; the
@@ -351,14 +377,10 @@ both matrices, which for a record computed from the journal is expected
 and is the point — the same check will apply unchanged to a record a
 model writes.
 
-The failures are the recognised shapes. `read-window` failed all six runs
-across the two matrices, four of them without ever compacting: the model
-searches for the assertion text and never opens the implementation. At
-16k this task passed 2 of 3, so the smaller window does cost it, but the
-cost lands before compaction, in what folding hides. The two IPC failures
-edited from memory after a compaction — three edits quoting text that was
-not in the files — were refused, and ran out of rounds re-reading; the
-tool held, the model did not take the hint in time.
+One failure shape is worth naming because the tool caught it: an IPC run
+in the first matrix edited from memory after a compaction — three edits
+quoting text that was not in the files — and every one was refused. The
+tool held; the model did not take the hint in time.
 
 **What the first matrix found.** A suite run *before* any edit was
 recorded as a passed verification, and the notes said so; a run that
