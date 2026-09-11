@@ -167,6 +167,12 @@ export async function runTask(req: RunRequest): Promise<RunResult> {
   // what the next request adds to the occupancy the server reported.
   let appendedChars = 0
   let compactions = 0
+  // Re-reading what the notes replaced is the doctrine's cost, and it is
+  // paid in rounds: each compaction buys two more, up to four in all, so a
+  // run in a small window has the same rounds of *work* as one in a large
+  // one. Measured before this existed: runs that had made the whole change
+  // hit the round limit before verifying it.
+  let roundBudget = maxRounds
 
   /**
    * Replace everything before the newest round with notes projected from the
@@ -179,7 +185,8 @@ export async function runTask(req: RunRequest): Promise<RunResult> {
     turns = compactWorkingSet(turns, notes, foldNewest)
     foldBefore = 0
     compactions += 1
-    emit({ type: 'checkpoint', throughSeq: record.throughSeq, record, reason, occupancy, chars: notes.length })
+    roundBudget = Math.min(maxRounds + 4, roundBudget + 2)
+    emit({ type: 'checkpoint', throughSeq: record.throughSeq, record, reason, occupancy, chars: notes.length, roundsAllowed: roundBudget })
     // Measured again on the next response; until then nothing is known.
     occupancy = null
     appendedChars = 0
@@ -192,7 +199,7 @@ export async function runTask(req: RunRequest): Promise<RunResult> {
     return { run, outcome, answer, rounds, ms, tokens, denials, reads, compactions }
   }
 
-  for (rounds = 1; rounds <= maxRounds; rounds++) {
+  for (rounds = 1; rounds <= roundBudget; rounds++) {
     if (deadline.aborted) {
       outcome = req.signal?.aborted ? 'cancelled' : 'timeout'
       return finish()
@@ -318,7 +325,7 @@ export async function runTask(req: RunRequest): Promise<RunResult> {
     }
   }
 
-  rounds = maxRounds
+  rounds = roundBudget
   return finish()
 }
 

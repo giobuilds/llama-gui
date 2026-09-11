@@ -371,6 +371,24 @@ task finished under the threshold in two runs of three at 6,144, so its
 window is 4,096. The first matrix scored 2 of 12 as run; with those three
 corrections applied to its records it would have scored 3.
 
+**Against a real small window.** The family fakes the window so the server
+never refuses a request. Two of the tasks were then run with the server
+itself at 6,144: the IPC task 1 of 2, `recover-slug` 2 of 2, peaks at
+79–85% of the window, and the server refused nothing — the projection
+compacted in time every round. The overflow retry (compact harder, ask
+once more) is therefore still exercised only by its design, not by a run.
+The same was done in the app itself, from the Coding tab with the 9B at
+6,144: three compactions in one run, each shown as a line in the journal
+view saying what replaced what and where verification stood.
+
+**Watching that run found the oldest bug in the tools.** The model asked
+to search for `coding` restricted to `src/main/ipc.ts` and was told no
+line contained it. A search restricted to a *file* walked it as a
+directory and found nothing. Every model tries this — it is the natural
+call — and across the four matrices before the fix, 56 of 62 file-scoped
+searches were answered "No lines contain", falsely. Fixed, with a test;
+the third crossover matrix below is the first measurement without it.
+
 Not built: the model-extracted slots — decisions, rejected options, next
 action. In these runs the model's own turns carried nothing to extract
 (the 9B emits tool calls with reasoning that is never resent, and no

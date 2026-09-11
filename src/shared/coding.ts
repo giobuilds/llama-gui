@@ -94,6 +94,8 @@ export type JournalEvent =
       occupancy: number | null
       /** Characters of prose the notes render to. */
       chars: number
+      /** The run's round limit after this compaction: re-reading costs rounds, and they are given back. */
+      roundsAllowed?: number
     })
   | (Base & {
       type: 'run.finished'
