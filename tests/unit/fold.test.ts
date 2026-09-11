@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { foldToolTurns, nextFoldIndex, FOLD_AT } from '@context/fold.js'
+import { foldToolTurns, nextFoldIndex, FOLD_AT, KEEP_ROUNDS_WHOLE } from '@context/fold.js'
 import type { ChatTurn } from '@shared/chatClient.js'
 
 let n = 0; const ok = (m: string) => { n++; console.log('  ok', m) }
@@ -47,9 +47,16 @@ console.log('\nwhen the index moves')
   assert.equal(nextFoldIndex(turns, 0, null, 16384), 0); ok('never before anything has been measured')
   assert.equal(nextFoldIndex(turns, 0, 5000, null), 0); ok('never when the window is unknown')
   assert.equal(nextFoldIndex(turns, 0, 5000, 16384), 0); ok(`stays put while under ${FOLD_AT * 100}% of the window`)
-  assert.equal(nextFoldIndex(turns, 0, 12000, 16384), 8); ok('moves to the start of the newest round once past it')
-  assert.equal(nextFoldIndex(turns, 8, 3000, 16384), 8); ok('and never moves back when the window empties again')
-  assert.equal(nextFoldIndex(turns, 6, 12000, 16384), 8); ok('or below where it already is')
+  assert.equal(KEEP_ROUNDS_WHOLE, 2)
+  assert.equal(nextFoldIndex(turns, 0, 12000, 16384), 6); ok('moves so the newest two rounds stay whole, once past it')
+  assert.equal(nextFoldIndex(turns, 6, 3000, 16384), 6); ok('and never moves back when the window empties again')
+  assert.equal(nextFoldIndex(turns, 8, 12000, 16384), 8); ok('or below where it already is')
+  // A read on one round and the edit that uses it on the next: one-round
+  // folding takes the read away exactly when it is needed.
+  const twoRounds: ChatTurn[] = [{ role: 'system', content: 'policy' }, { role: 'user', content: 'fix x' }, ...round(1), ...round(2)]
+  assert.equal(nextFoldIndex(twoRounds, 0, 12000, 16384), 2); ok('with two rounds in hand, both stay whole')
+  const oneRound: ChatTurn[] = [{ role: 'system', content: 'policy' }, { role: 'user', content: 'fix x' }, ...round(1)]
+  assert.equal(nextFoldIndex(oneRound, 0, 12000, 16384), 2); ok('and with one, there is nothing behind it to fold')
 }
 
 console.log(`\n${n} assertions passed`)
