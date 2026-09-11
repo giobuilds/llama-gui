@@ -25,6 +25,7 @@ const events: JournalEvent[] = [
   ev({ type: 'model.request', round: 4, turns: 10, tools: [] }),
   call('e', 'run_command', { command: 'node tests/run.mjs url' }), cmd('node tests/run.mjs url', 1), result('e', '$ node tests/run.mjs url'),
   ev({ type: 'model.request', round: 5, turns: 12, tools: [] }),
+  said(5, 'The suite still fails. I will read the file again and copy the passage exactly.'),
   call('f', 'edit_file', { path: 'src/shared/url.ts', find: 'nope', replace: 'y' }), result('f', 'Not found in src/shared/url.ts: the text to find does not appear.', false),
   call('g', 'read', { path: '../outside' }), result('g', 'Outside the project', false, true)
 ]
@@ -42,11 +43,17 @@ console.log('a checkpoint is a projection of the journal')
   assert.deepEqual(c.verification, { status: 'failed', command: 'node tests/run.mjs url' }); ok('verification: the last command after the last edit failed')
   assert.deepEqual(c.problems, ['edit_file: Not found in src/shared/url.ts: the text to find does not appear.', 'read: Outside the project'])
   ok('unresolved problems: the refusals since the last successful edit')
-  assert.deepEqual(c.intent, { round: 3, text: 'The gate accepts javascript: URLs. I will remove that branch and run the suite.' })
-  ok('and what the model last said it was doing, in its own words')
+  assert.deepEqual(c.intent, { round: 5, text: 'The suite still fails. I will read the file again and copy the passage exactly.' })
+  ok('and what the model last said it was doing, in its own words — the newest, not the first')
   const newer = checkpointFrom([...events, said(6, 'The suite still fails. I will read the test.')])
   assert.equal(newer.intent?.round, 6); ok('a newer statement replaces it rather than joining it')
+  // Transient means replaced every step. An intent nothing has replaced for
+  // several rounds is a stale plan, and handing it back reinforces a loop.
+  const stale = checkpointFrom([...events, ev({ type: 'model.request', round: 8, turns: 20, tools: [] })])
+  assert.equal(stale.rounds, 8); assert.equal(stale.intent, null)
+  ok('an intent the model has not restated for two rounds is dropped, not repeated back')
   assert.equal(checkpointFrom(events.slice(0, 6)).intent, null); ok('and a run that has said nothing has no intent, not an invented one')
+  assert.equal(checkpointFrom(events.slice(0, 13)).intent?.round, 3); ok('an earlier statement stands while it is still the newest')
 }
 
 console.log('\nverification status follows the record')
@@ -73,7 +80,7 @@ console.log('\nthe notes are prose from a template')
   assert.match(text, /Changes made so far, in the copy: src\/shared\/url\.ts \(edited\)\./); ok('changes')
   assert.match(text, /`node tests\/run\.mjs url` → exit 1/); assert.match(text, /failed after the last edit; its output is not kept here, so run it again/); ok('commands, and a failed verification says to run again')
   assert.match(text, /Unresolved: edit_file: Not found/); ok('problems')
-  assert.match(text, /On round 3 you said: "The gate accepts javascript: URLs\. I will remove that branch and run the suite\."$/)
+  assert.match(text, /On round 5 you said: "The suite still fails\. I will read the file again and copy the passage exactly\."$/)
   ok('and the model\'s own last words, quoted, last')
   const fresh = renderCheckpoint(checkpointFrom(events.slice(0, 2)))
   assert.match(fresh, /No files read yet\./); assert.match(fresh, /No files changed yet\./); assert.ok(!/Verification/.test(fresh)); ok('a run that has done nothing says so without inventing a verification line')
@@ -83,8 +90,8 @@ console.log('\nevery claim in a record must be in the journal')
 {
   const c = checkpointFrom(events)
   assert.deepEqual(verifyCheckpoint(c, events), []); ok('the projection is supported in full')
-  const forged = { ...c, read: [...c.read, { path: 'src/main/index.ts', range: null }], changed: [{ path: 'src/shared/host.ts', how: 'created' as const, times: 1 }], commands: [{ command: 'npm test', exitCode: 0, timedOut: false }], intent: { round: 3, text: 'I have finished and everything passes.' } }
-  assert.deepEqual(verifyCheckpoint(forged, events), ['read src/main/index.ts', 'changed src/shared/host.ts', 'command npm test → 0', 'said on round 3'])
+  const forged = { ...c, read: [...c.read, { path: 'src/main/index.ts', range: null }], changed: [{ path: 'src/shared/host.ts', how: 'created' as const, times: 1 }], commands: [{ command: 'npm test', exitCode: 0, timedOut: false }], intent: { round: 5, text: 'I have finished and everything passes.' } }
+  assert.deepEqual(verifyCheckpoint(forged, events), ['read src/main/index.ts', 'changed src/shared/host.ts', 'command npm test → 0', 'said on round 5'])
   ok('a read, a change, a command and a quote the journal does not hold are each named as unsupported')
   const early = { ...c, throughSeq: events[9]!.seq }
   assert.ok(verifyCheckpoint(early, events).includes('changed src/shared/url.ts')); ok('a claim from after the covered sequence is unsupported too')

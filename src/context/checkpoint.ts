@@ -17,6 +17,17 @@ import type { ChatTurn } from '@shared/chatClient.js'
  * memory, and the notes say so.
  */
 
+/**
+ * How recently the model must have spoken for its words to count as intent.
+ *
+ * Transient means replaced every step, and an intent nothing replaces is
+ * worse than none: in one run the model said on round 5 that it would check
+ * how the harness runs the suite, said nothing new for eleven rounds, and
+ * five successive checkpoints handed that same sentence back to it. A plan
+ * the model has not restated is not what it is doing now.
+ */
+export const INTENT_FRESH_ROUNDS = 2
+
 export function checkpointFrom(events: JournalEvent[], throughSeq: number = Number.POSITIVE_INFINITY): Checkpoint {
   const covered = events.filter((e) => e.seq <= throughSeq)
   const calls = new Map<string, Extract<JournalEvent, { type: 'tool.call' }>>()
@@ -97,7 +108,7 @@ export function checkpointFrom(events: JournalEvent[], throughSeq: number = Numb
     // Only what is still unresolved: a refusal answered by a later successful
     // edit of the same kind is history, and the last few are what matter.
     problems: failures.filter((f) => f.seq > lastEditSeq).slice(-3).map((f) => f.text),
-    intent
+    intent: intent && intent.round > rounds - INTENT_FRESH_ROUNDS ? intent : null
   }
 }
 
