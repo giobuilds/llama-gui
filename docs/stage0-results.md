@@ -322,7 +322,7 @@ compacted tested nothing), every claim in every checkpoint supported by
 the journal, and the last checkpoint's changed files present in the
 workspace diff.
 
-Four matrices of twelve runs, each changing one thing, reported together
+Six matrices of twelve runs, each changing one thing, reported together
 because the spread between them is the finding.
 
 | matrix | change | passes | by majority | compacted | record held |
@@ -331,40 +331,69 @@ because the spread between them is the finding.
 | 2 | verification only of a change; pipefail; tsbuildinfo not unwanted; slug at 4,096 | 6/12 | 3 of 4 | 10/12 | 12/12 |
 | 3 | search takes a file (see below) | 0/12 | 0 of 4 | 11/12 | 12/12 |
 | 4 | a compaction gives back two rounds, four at most | 6/12 | 2 of 4 | 12/12 | 12/12 |
+| 5 | folding keeps the newest two rounds whole, not one | 6/12 | 2 of 4 | 12/12 | 12/12 |
 
-Per task over matrices 2–4, nine runs each, beside the same task at the
+Per task over matrices 2–5, twelve runs each, beside the same task at the
 full window in its own family:
 
 | task | window | crossover passes | at 16k | verified when passed |
 |---|---|---|---|---|
-| crossover-slug | 4,096 | 3/9 | 5/6 | 3/3 |
-| crossover-read-window | 6,144 | 0/9 | 2/3 | — |
-| crossover-rename-summarise | 6,144 | 7/9 | 3/3 | 7/7 |
-| crossover-new-ipc-channel | 6,144 | 4/9 | 1/3 | 4/4 |
+| crossover-slug | 4,096 | 5/12 | 5/6 | 5/5 |
+| crossover-read-window | 6,144 | 0/12 | 2/3 | — |
+| crossover-rename-summarise | 6,144 | 10/12 | 3/3 | 10/10 |
+| crossover-new-ipc-channel | 6,144 | 5/12 | 1/3 | 5/5 |
 
 **Stage 3 crossover gate: not met on task completion; met on the record.**
-The record's part held in every one of 48 runs: compaction fired in 42,
+The record's part held in every one of 60 runs: compaction fired in 54,
 every claim in every checkpoint was supported by the journal up to its
 sequence, the changed-files slot matched the workspace diff at the end
 each time, and nothing unwanted was touched. Task completion in a window
 a third of the size ranged from 0 to 6 of 12 across matrices of the same
-code, with two of four tasks passing by majority over the pooled runs
-(rename 7 of 9; the IPC task, 4 of 9, did better than its own family at
-16k). The spread between matrices 2 and 3 — six passes to none, the
-search fix the only change between them — is larger than any single
-change made here and is the 9B's own: the failing runs reason two to
-three times as long per round and read the same short file repeatedly
+code, and pooled over 48 runs one task of four passes by majority —
+rename, 10 of 12. The spread between matrices 2 and 3 — six passes to
+none, the search fix the only change between them — is larger than any
+single change made here and is the 9B's own: the failing runs reason two
+to three times as long per round and read the same short file repeatedly
 without editing it. That is the *analysis without action* shape from the
-small-fix family, more frequent in a small window.
+small-fix family, more frequent in a small window. No change made since
+matrix 2 has moved the total outside that spread, which is the honest
+summary of the four experiments below.
 
-Where the window does cost: `read-window` failed all twelve runs where
-it had passed two of three at 16k. Its failures mostly come *before*
-compaction — folding at 60% of a small window hides the test file the
-model was reasoning from, and it then searches for assertion text
-instead of opening the implementation. And the round limit: in matrix 3
-two runs had made the whole change and were cut off before verifying it,
-which is what the fourth matrix's change addresses — three of its six
-passes finished past twelve rounds.
+### Folding was aimed at the wrong thing
+
+`read-window` failed every run in the small window while passing two of
+three at 16k, and the explanation that suggested itself was folding:
+with only the newest round kept whole, the failing test the model had
+just read is gone by the round that would act on it. Matrix 5 keeps the
+newest **two** rounds whole. It changed nothing — 6 of 12 again, and
+`read-window` 0 of 3 again, now 0 of 15 across five matrices.
+
+The journals say why, and it is not a subtle effect. **In a small window
+folding barely happens at all: compaction has already taken the same
+text.** Across matrix 5 the most results ever folded in a single request
+was five, and in the three `read-window` runs it was *one*, while those
+same runs compacted three, five and four times. Compaction resets the
+fold index, and between two compactions the working set rarely grows
+enough to fold anything. The lever the experiment reached for does not
+exist where it was aimed.
+
+What the same journals show instead: `read-window` run 2 read
+`src/agent/tools.ts` in full on round 14 — the wrong constant among the
+lines it was shown — ran the suite four times, and never edited
+anything. That is the capability limit, not a lost window. The fold
+change is kept because its reasoning still holds for a large window,
+where folding is what bounds the set, and because it costs nothing; it
+is not credited with anything.
+
+The arithmetic underneath is worth stating, since it bounds every other
+idea in this area. A `read` returns up to 200 lines, which is 2,000–3,000
+tokens of TypeScript. Two of them is a 6,144-token window. So a small
+window does not hold two files at once whatever the policy, and
+compaction fires every two or three rounds no matter how folding is
+tuned. The lever that would change that is the read itself — scaling the
+returned window to the context the run has — and it cannot be tried
+against these tasks, because `READ_MAX_LINES = 200` is the planted bug
+in three of them.
 
 What a compaction looks like from inside a run: the rename task at round
 2 held 4,410 tokens with two reads of `compact.ts` in the window; the
