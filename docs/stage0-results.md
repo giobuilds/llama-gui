@@ -332,32 +332,34 @@ because the spread between them is the finding.
 | 3 | search takes a file (see below) | 0/12 | 0 of 4 | 11/12 | 12/12 |
 | 4 | a compaction gives back two rounds, four at most | 6/12 | 2 of 4 | 12/12 | 12/12 |
 | 5 | folding keeps the newest two rounds whole, not one | 6/12 | 2 of 4 | 12/12 | 12/12 |
+| 6 | the notes carry what the model last said it was doing | 2/12 | 0 of 4 | 12/12 | 12/12 |
+| 7 | that statement expires if it is two rounds old | 4/12 | 1 of 4 | 12/12 | 12/12 |
 
-Per task over matrices 2–5, twelve runs each, beside the same task at the
-full window in its own family:
+Per task over matrices 2–7, eighteen runs each, beside the same task at
+the full window in its own family:
 
 | task | window | crossover passes | at 16k | verified when passed |
 |---|---|---|---|---|
-| crossover-slug | 4,096 | 5/12 | 5/6 | 5/5 |
-| crossover-read-window | 6,144 | 0/12 | 2/3 | — |
-| crossover-rename-summarise | 6,144 | 10/12 | 3/3 | 10/10 |
-| crossover-new-ipc-channel | 6,144 | 5/12 | 1/3 | 5/5 |
+| crossover-slug | 4,096 | 7/18 | 5/6 | 7/7 |
+| crossover-read-window | 6,144 | 0/18 | 2/3 | — |
+| crossover-rename-summarise | 6,144 | 12/18 | 3/3 | 12/12 |
+| crossover-new-ipc-channel | 6,144 | 8/18 | 1/3 | 8/8 |
 
 **Stage 3 crossover gate: not met on task completion; met on the record.**
-The record's part held in every one of 60 runs: compaction fired in 54,
+The record's part held in every one of 84 runs: compaction fired in 78,
 every claim in every checkpoint was supported by the journal up to its
 sequence, the changed-files slot matched the workspace diff at the end
 each time, and nothing unwanted was touched. Task completion in a window
 a third of the size ranged from 0 to 6 of 12 across matrices of the same
-code, and pooled over 48 runs one task of four passes by majority —
-rename, 10 of 12. The spread between matrices 2 and 3 — six passes to
+code, and pooled over 72 runs one task of four passes by majority —
+rename, 12 of 18. The spread between matrices 2 and 3 — six passes to
 none, the search fix the only change between them — is larger than any
 single change made here and is the 9B's own: the failing runs reason two
 to three times as long per round and read the same short file repeatedly
 without editing it. That is the *analysis without action* shape from the
 small-fix family, more frequent in a small window. No change made since
 matrix 2 has moved the total outside that spread, which is the honest
-summary of the four experiments below.
+summary of every experiment below.
 
 ### Folding was aimed at the wrong thing
 
@@ -394,6 +396,65 @@ tuned. The lever that would change that is the read itself — scaling the
 returned window to the context the run has — and it cannot be tried
 against these tasks, because `READ_MAX_LINES = 200` is the planted bug
 in three of them.
+
+### The notes carry what the model last said, and it has to expire
+
+The merged schema's one transient slot is *next action*, and it is the
+only slot a model fills rather than the journal. No extra generation was
+needed for it: the 9B writes a sentence or two of prose beside its tool
+calls in about half its rounds. The newest of those is quoted in the
+notes and journalled with the response that carried it, so it stays
+checkable — a quote the journal does not hold is reported as unsupported,
+like any other claim.
+
+Matrix 6 added the slot and scored 2 of 12, the worst since the search
+fix. The journals show a failure mode the schema had already named and
+the first implementation did not enforce. *Transient* means replaced
+every step; nothing replaced it. In two failing `slug` runs the model
+said on round 5 that it would go and look at how the harness runs the
+suite, then said nothing new for ten more rounds — and five successive
+checkpoints handed that same sentence back to it as what it was doing.
+Thirteen of the matrix's thirty-three checkpoints carried an intent
+older than the round before.
+
+Matrix 7 drops a statement the model has not restated within two rounds.
+It works as designed — in the `slug` and `read-window` runs most of the
+later checkpoints now carry no intent at all rather than a frozen one —
+and scored 4 of 12, which is again inside the spread. The rule is kept
+because it is what the slot's own definition says, not because the
+number moved.
+
+### What the family can and cannot resolve
+
+Seven matrices, 84 runs, and the same 0-to-6-of-12 spread throughout.
+Splitting the runs by how far they got says why, and it is the most
+useful thing the family has produced:
+
+| how far the run got | matrices 2–7 |
+|---|---|
+| never called an edit tool | 31/72 |
+| edited, did not fix it | 13/72 |
+| fixed it, never ran the check | 6/72 |
+| touched the wrong file | 1/72 |
+| pass | 21/72 |
+
+Two numbers are stable across every matrix: the record holds, and about
+four runs in ten never edit anything at all. That second one is the
+*analysis without action* limit, it is a constant tax, and no change to
+the context engine has ever moved it — nor should one be expected to.
+
+What is left after that tax is seven or eight informative runs per
+matrix, and *that* is where the whole 0-to-6 spread lives: the share of
+editing runs that ended correct and verified was 6/7, 0/5, 6/7, 6/8, 2/7
+and 4/7 across matrices 2 to 7. A twelve-run matrix cannot resolve a
+change worth one or two runs, and every change tried here is that size.
+The family is sound as a *regression* check — it has caught four real
+defects — and too small as an *experiment*. Any further tuning of the
+context engine needs either many more runs per matrix or a task set whose
+runs do not fail for reasons the engine cannot touch.
+
+The harness now reports this breakdown for every write matrix, so the
+distinction is visible without going back to the journals.
 
 What a compaction looks like from inside a run: the rename task at round
 2 held 4,410 tokens with two reads of `compact.ts` in the window; the
