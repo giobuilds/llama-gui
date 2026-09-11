@@ -50,7 +50,7 @@ export const AGENT_TOOLS: ToolDefinition[] = [
       type: 'object',
       properties: {
         query: { type: 'string', description: 'The text to look for.' },
-        path: { type: 'string', description: 'Restrict to this directory. Defaults to the whole project.' }
+        path: { type: 'string', description: 'Restrict to this directory or file. Defaults to the whole project.' }
       },
       required: ['query']
     }
@@ -205,8 +205,19 @@ async function search(grant: Grant, query: string, dir: string): Promise<AgentTo
     }
   }
 
-  await walk(resolved.path)
-  if (hits.length === 0) return { ok: true, content: `No lines contain "${query}".` }
+  // A file, not a directory: search that file. Every model tried this —
+  // "search for X in src/main/ipc.ts" is the natural call — and until it
+  // was handled the answer was "No lines contain", which was false: across
+  // the first four matrices 56 of 62 such searches were answered that way.
+  let info
+  try {
+    info = await stat(resolved.path)
+  } catch {
+    return { ok: false, content: `No such path: ${resolved.relative}` }
+  }
+  if (info.isFile()) await scanFile(resolved.path)
+  else await walk(resolved.path)
+  if (hits.length === 0) return { ok: true, content: `No lines contain "${query}"${info.isFile() ? ` in ${resolved.relative}` : ''}.` }
   const capped = hits.length >= SEARCH_MAX_HITS ? `\n(first ${SEARCH_MAX_HITS} hits; narrow the search for more)` : ''
   return { ok: true, content: hits.join('\n') + capped }
 }

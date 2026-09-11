@@ -80,6 +80,24 @@ export type JournalEvent =
       truncated: boolean
     })
   | (Base & {
+      /**
+       * The working set was rebuilt from the record: everything before the
+       * newest round replaced by these notes, projected from the journal up
+       * to `throughSeq` with no model involved.
+       */
+      type: 'checkpoint'
+      throughSeq: number
+      record: Checkpoint
+      /** What made it happen: the window filling, or the server refusing a request that overflowed it. */
+      reason: 'window' | 'overflow'
+      /** The window's occupancy as last measured before the rebuild, when known. */
+      occupancy: number | null
+      /** Characters of prose the notes render to. */
+      chars: number
+      /** The run's round limit after this compaction: re-reading costs rounds, and they are given back. */
+      roundsAllowed?: number
+    })
+  | (Base & {
       type: 'run.finished'
       outcome: RunOutcome
       answer: string
@@ -157,4 +175,34 @@ export interface AgentToolResult {
   ok: boolean
   denied?: boolean
   content: string
+}
+
+/**
+ * What a coding run knows about itself once its older turns are gone: a
+ * projection of the journal, not a summary by the model. Facts (the task) stay
+ * verbatim in the prompt and are not repeated here; this is the state —
+ * what was read, what changed, what ran, and whether the change was checked.
+ * Every entry names something the journal records, which is what makes it
+ * checkable.
+ */
+export interface Checkpoint {
+  /** The last journal sequence the record covers, inclusive. */
+  throughSeq: number
+  rounds: number
+  /** Files read, in order of first reading, with the last range shown. */
+  read: Array<{ path: string; range: string | null }>
+  /** Searches made, with the first line of what came back. */
+  searched: Array<{ query: string; result: string }>
+  /** Files the run has changed in its copy, by successful edit or write. State: reflects the record, not memory. */
+  changed: Array<{ path: string; how: 'edited' | 'created' | 'overwrote'; times: number }>
+  /** Commands run, oldest first. */
+  commands: Array<{ command: string; exitCode: number | null; timedOut: boolean }>
+  /**
+   * Whether the change has been checked: `passed`/`failed` is the last command
+   * run after the last edit; `stale` means commands ran but none since the
+   * last edit; `none` means nothing has been run.
+   */
+  verification: { status: 'none' | 'passed' | 'failed' | 'stale'; command: string | null }
+  /** The most recent refused or failed tool calls, oldest first. */
+  problems: string[]
 }

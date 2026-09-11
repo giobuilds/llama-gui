@@ -306,6 +306,148 @@ on any round after the first. Task outcomes, timings, exposure and leaks are
 unaffected. The harness now records `cacheTokens` per round, and later
 measurements report occupancy.
 
+## Crossover family
+
+The write tasks again, in a window too small to hold them. The loop is
+told it has 6,144 tokens (4,096 for the shortest task) while the server
+has its usual 16,384, so compaction is forced without the server ever
+refusing a request. Folding still happens first, at 60%; at 75% projected,
+everything before the newest round is replaced by notes computed from the
+journal — files read with their ranges, searches, files changed, commands
+with exit codes, whether the change has been verified, and what was
+refused — rendered as prose by a template. No model writes them. The task
+stays in the prompt verbatim. A pass needs the task done and verified as
+in the recover family, at least one compaction (a run that never
+compacted tested nothing), every claim in every checkpoint supported by
+the journal, and the last checkpoint's changed files present in the
+workspace diff.
+
+Four matrices of twelve runs, each changing one thing, reported together
+because the spread between them is the finding.
+
+| matrix | change | passes | by majority | compacted | record held |
+|---|---|---|---|---|---|
+| 1 | as first built | 2/12 (3 with the corrections below) | 1 of 4 | 9/12 | 12/12 |
+| 2 | verification only of a change; pipefail; tsbuildinfo not unwanted; slug at 4,096 | 6/12 | 3 of 4 | 10/12 | 12/12 |
+| 3 | search takes a file (see below) | 0/12 | 0 of 4 | 11/12 | 12/12 |
+| 4 | a compaction gives back two rounds, four at most | 6/12 | 2 of 4 | 12/12 | 12/12 |
+
+Per task over matrices 2–4, nine runs each, beside the same task at the
+full window in its own family:
+
+| task | window | crossover passes | at 16k | verified when passed |
+|---|---|---|---|---|
+| crossover-slug | 4,096 | 3/9 | 5/6 | 3/3 |
+| crossover-read-window | 6,144 | 0/9 | 2/3 | — |
+| crossover-rename-summarise | 6,144 | 7/9 | 3/3 | 7/7 |
+| crossover-new-ipc-channel | 6,144 | 4/9 | 1/3 | 4/4 |
+
+**Stage 3 crossover gate: not met on task completion; met on the record.**
+The record's part held in every one of 48 runs: compaction fired in 42,
+every claim in every checkpoint was supported by the journal up to its
+sequence, the changed-files slot matched the workspace diff at the end
+each time, and nothing unwanted was touched. Task completion in a window
+a third of the size ranged from 0 to 6 of 12 across matrices of the same
+code, with two of four tasks passing by majority over the pooled runs
+(rename 7 of 9; the IPC task, 4 of 9, did better than its own family at
+16k). The spread between matrices 2 and 3 — six passes to none, the
+search fix the only change between them — is larger than any single
+change made here and is the 9B's own: the failing runs reason two to
+three times as long per round and read the same short file repeatedly
+without editing it. That is the *analysis without action* shape from the
+small-fix family, more frequent in a small window.
+
+Where the window does cost: `read-window` failed all twelve runs where
+it had passed two of three at 16k. Its failures mostly come *before*
+compaction — folding at 60% of a small window hides the test file the
+model was reasoning from, and it then searches for assertion text
+instead of opening the implementation. And the round limit: in matrix 3
+two runs had made the whole change and were cut off before verifying it,
+which is what the fourth matrix's change addresses — three of its six
+passes finished past twelve rounds.
+
+What a compaction looks like from inside a run: the rename task at round
+2 held 4,410 tokens with two reads of `compact.ts` in the window; the
+next request carried 2,090, with the second read whole and notes saying
+the file had been read in full and nothing changed yet. The run then made
+both edits, ran the suite, and answered. The checkpoint's claims were
+checked against the journal up to its own sequence, and its changed-files
+slot against the workspace diff at the end; both held in every run of
+both matrices, which for a record computed from the journal is expected
+and is the point — the same check will apply unchanged to a record a
+model writes.
+
+One failure shape is worth naming because the tool caught it: an IPC run
+in the first matrix edited from memory after a compaction — three edits
+quoting text that was not in the files — and every one was refused. The
+tool held; the model did not take the hint in time.
+
+**What the first matrix found.** A suite run *before* any edit was
+recorded as a passed verification, and the notes said so; a run that
+piped the suite through `head` got exit 0 for a failing suite, and the
+record said that too. Now a command before the first edit verifies
+nothing, and the box runs with `pipefail`. A run told to typecheck was
+failed for tsc's incremental state file, which the repository ignores
+and a harness copy, not being a repository, does not. And the shortest
+task finished under the threshold in two runs of three at 6,144, so its
+window is 4,096. The first matrix scored 2 of 12 as run; with those three
+corrections applied to its records it would have scored 3.
+
+**Against a real small window.** The family fakes the window so the server
+never refuses a request. Two of the tasks were then run with the server
+itself at 6,144: the IPC task 1 of 2, `recover-slug` 2 of 2, peaks at
+79–85% of the window, and the server refused nothing — the projection
+compacted in time every round. The overflow retry (compact harder, ask
+once more) is therefore still exercised only by its design, not by a run.
+The same was done in the app itself, from the Coding tab with the 9B at
+6,144: three compactions in one run, each shown as a line in the journal
+view saying what replaced what and where verification stood.
+
+**Watching that run found the oldest bug in the tools.** The model asked
+to search for `coding` restricted to `src/main/ipc.ts` and was told no
+line contained it. A search restricted to a *file* walked it as a
+directory and found nothing. Every model tries this — it is the natural
+call — and across the four matrices before the fix, 56 of 62 file-scoped
+searches were answered "No lines contain", falsely. Fixed, with a test;
+the third crossover matrix below is the first measurement without it.
+
+Not built: the model-extracted slots — decisions, rejected options, next
+action. In these runs the model's own turns carried nothing to extract
+(the 9B emits tool calls with reasoning that is never resent, and no
+prose), so the mechanical record was the whole record. Whether that stays
+true on longer tasks is the open question the family is for.
+
+## Addendum: this document was in the corpus
+
+The first crossover run searched the project for "slug" and its first hit
+was line 176 of this file — the sentence describing the planted bug it was
+sent to find. The harness had excluded its own task file and the plan, and
+not the results, which name every planted bug in the write and recover
+tables above. Excluded now; the exposure in the earlier matrices, from the
+journals:
+
+| matrix | run | what it saw | scored |
+|---|---|---|---|
+| small-fix (Stage 2) | fix-grant-node-modules #1, #2 | a search hit on a sentence about the harness, not the bug | pass, pass |
+| nudge experiment | fix-fold-threshold #1 | **read this file from line 165, where the planted constants are listed** | pass |
+| recover (Stage 3) | recover-url #1, #3 | a search hit quoting "`javascript:` accepted by `isWebUrl`" | pass, pass |
+| recover (Stage 3) | recover-slug #3 | a search hit quoting "`slug()` no longer lower-casing" | pass |
+
+The two Stage 2 exposures were to nothing useful and the gate stands. The
+nudge experiment's one pass was the run that read the answer, so that
+experiment's result is 0 of 6 rather than 1 of 6 — which strengthens its
+conclusion. The Stage 3 recover gate is the one affected: three of its
+seven passes had seen the bug named before finding it. `recover-url` and
+`recover-slug` re-run with the file excluded, three runs each:
+
+| task | passes | verified | time |
+|---|---|---|---|
+| recover-url | 3/3 | 3/3 | 32–38s |
+| recover-slug | 3/3 | 3/3 | 42–97s |
+
+Six of six, every one verified. The gate stands, on runs that could not
+have read the answer.
+
 ## What it means for the plan
 
 **The middle model is the target, and it is the 9B.** Ornith-1.5-9B passed

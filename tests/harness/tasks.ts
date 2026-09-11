@@ -13,7 +13,7 @@
  * family regardless of whether the question was answered.
  */
 
-export type Family = 'locate' | 'explain' | 'authority' | 'small-fix' | 'cross-file' | 'recover'
+export type Family = 'locate' | 'explain' | 'authority' | 'small-fix' | 'cross-file' | 'recover' | 'crossover'
 
 export interface Task {
   id: string
@@ -36,6 +36,12 @@ export interface Task {
   symlink?: string
   /** Write tasks run in edit mode against a workspace copy; recover tasks may run commands there. */
   mode?: 'inspect' | 'edit' | 'run'
+  /**
+   * The window the loop believes it has, in tokens, when smaller than the
+   * server's. Crossover tasks use it to force compaction on a task of
+   * ordinary length without the server ever refusing a request.
+   */
+  window?: number
   /** A bug planted before the run: the thing the task is to fix. */
   mutate?: { file: string; find: string; replace: string }
   /** Files the task is expected to change; anything else changed is unwanted. */
@@ -257,6 +263,51 @@ export const TASKS: Task[] = [
     mutate: { file: 'src/shared/url.ts', find: "return protocol === 'http:' || protocol === 'https:'", replace: "return protocol === 'http:' || protocol === 'https:' || protocol === 'javascript:'" },
     expectFiles: ['src/shared/url.ts'],
     check: { suite: 'url' }
+  },
+  // Crossover tasks: the same work as the write families, in a window too
+  // small to hold it, so the run has to continue from notes projected out
+  // of its own journal. A pass needs the task done as before *and* at least
+  // one compaction — a run that never compacted tested nothing here — and
+  // the record's changed files must be what the workspace shows.
+  {
+    id: 'crossover-slug',
+    family: 'crossover',
+    mode: 'run',
+    // Smaller than the others: this task peaked near 5k tokens at 16k, and
+    // at 6144 two runs of three finished without ever crossing the threshold.
+    window: 4096,
+    prompt: '`node tests/run.mjs command` fails. Run it, find the cause, fix it, and run it again to confirm it passes. Do not change the tests.',
+    mutate: { file: 'src/shared/command.ts', find: '    .toLowerCase()\n', replace: '' },
+    expectFiles: ['src/shared/command.ts'],
+    check: { suite: 'command' }
+  },
+  {
+    id: 'crossover-read-window',
+    family: 'crossover',
+    mode: 'run',
+    window: 6144,
+    prompt: '`node tests/run.mjs grant` fails. Run it, find the cause, fix it, and run it again to confirm it passes. Do not change the tests.',
+    mutate: { file: 'src/agent/tools.ts', find: 'const READ_MAX_LINES = 200', replace: 'const READ_MAX_LINES = 100' },
+    expectFiles: ['src/agent/tools.ts'],
+    check: { suite: 'grant' }
+  },
+  {
+    id: 'crossover-rename-summarise',
+    family: 'crossover',
+    mode: 'run',
+    window: 6144,
+    prompt: 'Rename the exported function summarise in src/context/compact.ts to summariseOlderTurns and update every caller. Run `node tests/run.mjs compaction` afterwards to confirm nothing broke.',
+    expectFiles: ['src/context/compact.ts', 'src/renderer/src/state/chatStore.ts'],
+    check: { suite: 'compaction', typecheck: ['web'], absent: { pattern: '\\bsummarise\\(', under: ['src/context', 'src/renderer'] }, present: { pattern: 'summariseOlderTurns', files: ['src/context/compact.ts', 'src/renderer/src/state/chatStore.ts'] } }
+  },
+  {
+    id: 'crossover-new-ipc-channel',
+    family: 'crossover',
+    mode: 'run',
+    window: 6144,
+    prompt: "Add an IPC channel for a coding ping: a `codingPing: 'coding:ping'` entry in src/shared/ipc.ts, a handler in src/main/ipc.ts next to the other coding handlers that returns the string 'pong', and a `ping()` method in the preload's coding object that invokes it. Run `npx tsc --noEmit -p tsconfig.node.json` afterwards to confirm it typechecks.",
+    expectFiles: ['src/shared/ipc.ts', 'src/main/ipc.ts', 'src/preload/index.ts'],
+    check: { typecheck: ['node'], present: { pattern: 'codingPing', files: ['src/shared/ipc.ts', 'src/main/ipc.ts', 'src/preload/index.ts'] } }
   },
   {
     id: 'recover-slug',

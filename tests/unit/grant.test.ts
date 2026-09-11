@@ -87,5 +87,15 @@ console.log('\nreads are bounded')
   assert.ok(later.ok && later.content.includes('500| line 500')); ok('a start line reads further in')
 }
 
+console.log('\nsearch takes a file as well as a directory')
+{
+  const inFile = await runAgentTool(grant, 'search', { query: 'line 5', path: 'src/long.txt' })
+  assert.equal(inFile.ok, true); assert.match(inFile.content, /src\/long\.txt:5:/); ok('a search restricted to one file searches that file')
+  const none = await runAgentTool(grant, 'search', { query: 'zzz-not-here', path: 'src/long.txt' })
+  assert.match(none.content, /No lines contain "zzz-not-here" in src\/long\.txt/); ok('and an empty result names the file it searched')
+  const missing = await runAgentTool(grant, 'search', { query: 'x', path: 'src/nope.ts' })
+  assert.equal(missing.ok, false); ok('a path that does not exist is an error, not an empty result')
+}
+
 await rm(base, { recursive: true, force: true })
 console.log(`\n${n} assertions passed`)

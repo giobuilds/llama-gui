@@ -33,6 +33,8 @@ console.log('a command runs in the workspace')
   assert.match(r.stdout, /hello from/); assert.match(r.stdout, /done/); ok('its output comes back')
   const r2 = await runInSandbox({ ...opts, command: 'exit 3' })
   assert.equal(r2.exitCode, 3); ok('a failing command reports its exit code')
+  const piped = await runInSandbox({ ...opts, command: 'sh -c "echo out; exit 3" | head -1' })
+  assert.equal(piped.exitCode, 3); assert.match(piped.stdout, /out/); ok('and so does a failing command piped through head')
 }
 
 console.log('\nthe box is the whole world')

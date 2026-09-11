@@ -400,6 +400,13 @@ function Line({ event }: { event: JournalEvent }): React.JSX.Element | null {
           {event.truncated && ' · output truncated'}
         </li>
       )
+    case 'checkpoint':
+      return (
+        <li className="text-amber-200/80">
+          notes replaced the earlier rounds · {event.reason === 'overflow' ? 'the window overflowed' : 'the window was filling'} ·{' '}
+          {event.record.changed.length} file{event.record.changed.length === 1 ? '' : 's'} changed so far · verification {event.record.verification.status}
+        </li>
+      )
     case 'run.finished':
       return (
         <li className="text-muted">

@@ -305,9 +305,19 @@ not help the model see it. Lifecycle — cancel a child process
 tree, restart mid-execution, model disconnect — measured against the real
 app: no orphan in any case, and a run cut off with a command in flight is
 reported as exactly that, the command named and its outcome unknown. Met.
-The crossover family (a task long enough to force compaction) is not yet
-built. Details in
-[stage0-results.md](stage0-results.md).
+The crossover family — the write tasks in a window a third of the size,
+continued from notes projected out of the journal — over four matrices:
+the record held in 48 of 48 runs (every checkpoint claim supported, every
+changed-files slot matching the diff), and task completion ranged from 0
+to 6 of 12, two of four tasks by majority over the pooled runs. **Met on
+the record, not on completion.** The spread is the 9B's own — runs that
+reason longest edit least — and the one task that fails outright fails
+before compaction, in what folding hides. Next experiments, in order:
+fold less in a small window (keep two rounds whole, not one); a
+model-extracted *next action* slot in the notes; the same family on a
+larger model. The results document was found in the corpus during this
+work and is excluded now; the recover tasks it could have helped were
+re-run clean, 6 of 6. Details in [stage0-results.md](stage0-results.md).
 
 - Command execution inside the sandbox only, with explicit cwd, restricted
   environment, time and output caps, and process-tree termination.
@@ -315,6 +325,11 @@ built. Details in
   approval buttons.
 - Interruption recovery: a command started but not recorded as finished is
   *uncertain*, never re-run automatically.
+- Compaction in a coding run is a projection of the journal, not a summary
+  by the model: the task verbatim, then notes — read, searched, changed,
+  run, verified, refused — rendered from the record and checkable against
+  it. A request the server refuses for overflow compacts harder and retries
+  once.
 - Test evidence in the UI: pre-existing failures separated from new ones;
   modified tests shown as changes, not as proof.
 
